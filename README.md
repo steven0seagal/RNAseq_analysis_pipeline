@@ -14,6 +14,7 @@ A comprehensive, production-ready pipeline for RNA-seq differential gene express
 - **Dual Implementation**: Both bash scripts and Snakemake workflows
 - **Cross-Platform Analysis**: R and Python scripts for flexibility
 - **Automated Interpretation**: Statistical analysis, visualization, and pathway enrichment
+- **Multimodal Analysis**: Support for somatic variant calling, small RNA analysis, and integrated multi-omics
 - **Reproducible**: Conda environments and Docker containerization
 - **Scalable**: Automatic parallelization and cloud-ready
 - **Publication-Ready**: High-quality plots and comprehensive reports
@@ -61,7 +62,11 @@ conda activate rnaseq-pipeline
 cd workflow
 snakemake --use-conda --cores 8
 
-# Option 3: Docker container
+# Option 3: Multimodal analysis pipeline
+./scripts/run_star_2pass.sh  # For 2-pass STAR alignment
+./scripts/multimodal_integration.R  # For integrated analysis
+
+# Option 4: Docker container
 docker-compose up
 ```
 
@@ -144,6 +149,21 @@ snakemake --profile slurm --jobs 100
 snakemake --cluster "qsub -pe smp {threads}" --jobs 50
 ```
 
+#### Multimodal Analysis
+```bash
+# Somatic variant calling
+./scripts/mutect2_somatic_calling.sh
+
+# Small RNA analysis
+./scripts/small_rna_analysis.sh
+
+# Generate custom visualizations
+python scripts/generate_visualizations.py
+
+# Multimodal integration
+Rscript scripts/multimodal_integration.R
+```
+
 ## 🔄 Pipeline Overview
 
 ### Core Workflow
@@ -171,9 +191,10 @@ Final Report
 
 ### Supported Analysis Types
 - **Differential Gene Expression**: Cancer vs Healthy (3v3 design)
+- **Multimodal Analysis**: Somatic variant calling, small RNA analysis
 - **Quality Control**: Comprehensive QC reporting
 - **Functional Enrichment**: GO and KEGG pathway analysis
-- **Visualization**: PCA, volcano plots, heatmaps
+- **Visualization**: PCA, volcano plots, heatmaps, custom plots
 
 ## 📁 Output Files
 
@@ -237,6 +258,11 @@ params:
 - **Analysis**: DESeq2 1.36.0, PyDESeq2 0.3.2
 - **Functional Analysis**: clusterProfiler 4.4.4, GSEApy 1.0.4
 - **Workflow**: Snakemake 7.18.2
+
+### Multimodal Tools
+- **Variant Calling**: GATK 4.4.0, MuTect2
+- **Small RNA Analysis**: Custom Python/R scripts
+- **Integration**: Custom R/Python pipelines
 
 ### Reference Data
 - **Human Genome**: GRCh38/hg38 (GENCODE v38)

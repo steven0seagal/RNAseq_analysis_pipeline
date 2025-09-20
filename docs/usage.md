@@ -44,7 +44,11 @@ vim config/metadata.tsv
 cd workflow
 snakemake --use-conda --cores 8
 
-# Option C: Docker container
+# Option C: Multimodal analysis
+./scripts/run_star_2pass.sh  # 2-pass STAR alignment
+./scripts/multimodal_integration.R  # Integrated analysis
+
+# Option D: Docker container
 docker-compose up
 ```
 
@@ -253,6 +257,9 @@ docker-compose up -d
 # Execute pipeline
 docker-compose exec pipeline ./scripts/run_rnaseq_pipeline.sh
 
+# Execute multimodal pipeline
+docker-compose exec pipeline ./scripts/run_star_2pass.sh
+
 # Access Jupyter notebook
 open http://localhost:8888
 
@@ -311,6 +318,10 @@ results/
 ├── 06_multiqc/            # Summary QC report
 ├── analysis_R/            # R analysis results
 ├── analysis_python/       # Python analysis results
+├── multimodal/            # Multimodal analysis results
+│   ├── variants/          # Somatic variants
+│   ├── small_rna/         # Small RNA analysis
+│   └── integration/       # Integrated results
 └── logs/                  # Pipeline logs
 ```
 
@@ -338,6 +349,11 @@ results/
 #### Functional Analysis
 - `analysis_R/GO_enrichment_*.csv`: Gene Ontology results
 - `analysis_R/KEGG_enrichment_*.csv`: KEGG pathway results
+
+#### Multimodal Analysis
+- `multimodal/variants/somatic_variants.vcf`: Somatic variants
+- `multimodal/small_rna/small_rna_counts.tsv`: Small RNA expression
+- `multimodal/integration/multimodal_report.html`: Integrated analysis report
 
 ### Interpreting Results
 
@@ -368,6 +384,38 @@ results/
 - **padj**: Multiple testing corrected p-value
 
 ## Advanced Usage
+
+### Multimodal Analysis
+
+#### Somatic Variant Calling
+```bash
+# Prepare paired tumor-normal samples
+# Edit config/pairs.tsv with sample pairs
+
+# Run somatic calling
+./scripts/mutect2_somatic_calling.sh
+
+# Process BAM files with GATK
+./scripts/gatk_bam_processing.sh
+```
+
+#### Small RNA Analysis
+```bash
+# Run small RNA pipeline
+./scripts/small_rna_analysis.sh
+
+# Generate custom visualizations
+python scripts/generate_visualizations.py
+```
+
+#### Multimodal Integration
+```bash
+# Integrate RNA-seq with other omics data
+Rscript scripts/multimodal_integration.R
+
+# Use multimodal configuration
+# Edit config/config_multimodal.yaml
+```
 
 ### Custom Analysis Scripts
 

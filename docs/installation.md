@@ -56,6 +56,20 @@ conda env create -f environment.yml
 conda activate rnaseq-pipeline
 ```
 
+### Option 3: Multimodal Analysis Environment
+
+```bash
+# Clone repository
+git clone https://github.com/username/RNAseq_analysis_pipeline.git
+cd RNAseq_analysis_pipeline
+
+# Create multimodal environment
+conda env create -f environment_multimodal.yml
+
+# Activate multimodal environment
+conda activate rnaseq-multimodal
+```
+
 ## Manual Installation
 
 ### Step 1: Install Miniconda
@@ -115,6 +129,21 @@ conda install -c bioconda snakemake=7.18.2
 
 # Data science packages
 conda install pandas numpy matplotlib seaborn scikit-learn
+```
+
+### Step 5: Install Multimodal Tools (Optional)
+
+For multimodal analysis including somatic variant calling:
+
+```bash
+# GATK and related tools
+conda install -c bioconda gatk4=4.4.0 bcftools=1.17
+
+# Additional Python packages for multimodal analysis
+pip install pysam pyvcf
+
+# R packages for multimodal integration
+conda install -c bioconda bioconductor-variantannotation
 ```
 
 ### Step 5: Install R Packages
