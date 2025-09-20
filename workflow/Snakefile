@@ -1,0 +1,484 @@
+# ==============================================================================
+# RNA-Seq Differential Expression Analysis Pipeline - Snakemake Workflow
+#
+# A scalable and reproducible workflow for RNA-seq data analysis
+# From raw FASTQ files to differential expression results
+#
+# Usage: snakemake --use-conda --cores 8
+# ==============================================================================
+
+import pandas as pd
+import os
+from pathlib import Path
+
+# === CONFIGURATION ===
+configfile: "../config/config.yaml"
+
+# === SAMPLE INFORMATION ===
+SAMPLES_DF = pd.read_csv("../config/samples.tsv", sep="\t").set_index("sample", drop=False)
+SAMPLES = SAMPLES_DF.index.tolist()
+
+# Validate that we have samples
+if len(SAMPLES) == 0:
+    raise ValueError("No samples found in ../config/samples.tsv")
+
+print(f"Found {len(SAMPLES)} samples: {SAMPLES}")
+
+# === HELPER FUNCTIONS ===
+def get_fastq(wildcards, read):
+    """Get FASTQ file path for a given sample and read"""
+    return f"../data/raw_fastq/{wildcards.sample}_{read}.fastq.gz"
+
+def get_all_bams():
+    """Get all BAM files for featureCounts"""
+    return expand("../results/04_star_alignment/{sample}_Aligned.sortedByCoord.out.bam", sample=SAMPLES)
+
+# === GLOBAL WILDCARD CONSTRAINTS ===
+wildcard_constraints:
+    sample="|".join(SAMPLES),
+    read="R[12]"
+
+# ==============================================================================
+# TARGET RULE: Define final outputs
+# ==============================================================================
+rule all:
+    input:
+        # Quality control outputs
+        expand("../results/01_fastqc_raw/{sample}_{read}_fastqc.html", sample=SAMPLES, read=["R1", "R2"]),
+        expand("../results/03_fastqc_trimmed/{sample}_{read}.trimmed_fastqc.html", sample=SAMPLES, read=["R1", "R2"]),
+
+        # Main pipeline outputs
+        "../results/05_featurecounts/raw_counts.tsv",
+        "../results/06_multiqc/multiqc_report.html",
+
+        # Analysis outputs (if interpretation scripts exist)
+        "../results/analysis_summary.txt"
+
+# ==============================================================================
+# QUALITY CONTROL RULES
+# ==============================================================================
+
+rule fastqc_raw:
+    """Run FastQC on raw FASTQ files"""
+    input:
+        r1=lambda wildcards: get_fastq(wildcards, "R1"),
+        r2=lambda wildcards: get_fastq(wildcards, "R2")
+    output:
+        r1_html="../results/01_fastqc_raw/{sample}_R1_fastqc.html",
+        r1_zip="../results/01_fastqc_raw/{sample}_R1_fastqc.zip",
+        r2_html="../results/01_fastqc_raw/{sample}_R2_fastqc.html",
+        r2_zip="../results/01_fastqc_raw/{sample}_R2_fastqc.zip"
+    params:
+        outdir="../results/01_fastqc_raw/"
+    log:
+        "../results/logs/fastqc_raw/{sample}.log"
+    threads: config["resources"]["threads"] // 4
+    conda:
+        "envs/qc.yaml"
+    shell:
+        """
+        fastqc -t {threads} -o {params.outdir} {input.r1} {input.r2} > {log} 2>&1
+        """
+
+rule fastp:
+    """Adapter trimming and quality filtering with fastp"""
+    input:
+        r1=lambda wildcards: get_fastq(wildcards, "R1"),
+        r2=lambda wildcards: get_fastq(wildcards, "R2")
+    output:
+        r1="../results/02_trimmed_fastq/{sample}_R1.trimmed.fastq.gz",
+        r2="../results/02_trimmed_fastq/{sample}_R2.trimmed.fastq.gz",
+        html="../results/02_trimmed_fastq/{sample}.fastp.html",
+        json="../results/02_trimmed_fastq/{sample}.fastp.json"
+    params:
+        min_len=config["params"]["fastp"]["min_len"],
+        extra_params=config["params"]["fastp"].get("extra_params", "")
+    log:
+        "../results/logs/fastp/{sample}.log"
+    threads: config["resources"]["threads"] // 2
+    conda:
+        "envs/qc.yaml"
+    shell:
+        """
+        fastp \
+            -i {input.r1} \
+            -I {input.r2} \
+            -o {output.r1} \
+            -O {output.r2} \
+            --html {output.html} \
+            --json {output.json} \
+            -l {params.min_len} \
+            -w {threads} \
+            {params.extra_params} \
+            > {log} 2>&1
+        """
+
+rule fastqc_trimmed:
+    """Run FastQC on trimmed FASTQ files"""
+    input:
+        r1="../results/02_trimmed_fastq/{sample}_R1.trimmed.fastq.gz",
+        r2="../results/02_trimmed_fastq/{sample}_R2.trimmed.fastq.gz"
+    output:
+        r1_html="../results/03_fastqc_trimmed/{sample}_R1.trimmed_fastqc.html",
+        r1_zip="../results/03_fastqc_trimmed/{sample}_R1.trimmed_fastqc.zip",
+        r2_html="../results/03_fastqc_trimmed/{sample}_R2.trimmed_fastqc.html",
+        r2_zip="../results/03_fastqc_trimmed/{sample}_R2.trimmed_fastqc.zip"
+    params:
+        outdir="../results/03_fastqc_trimmed/"
+    log:
+        "../results/logs/fastqc_trimmed/{sample}.log"
+    threads: config["resources"]["threads"] // 4
+    conda:
+        "envs/qc.yaml"
+    shell:
+        """
+        fastqc -t {threads} -o {params.outdir} {input.r1} {input.r2} > {log} 2>&1
+        """
+
+# ==============================================================================
+# REFERENCE GENOME PREPARATION
+# ==============================================================================
+
+rule download_reference:
+    """Download reference genome and annotation if not present"""
+    output:
+        genome=config["reference"]["genome_fasta"],
+        annotation=config["reference"]["annotation_gtf"]
+    log:
+        "../results/logs/download_reference.log"
+    shell:
+        """
+        # Create reference directory
+        mkdir -p $(dirname {output.genome})
+
+        # Download genome if not present
+        if [ ! -f {output.genome} ]; then
+            echo "Downloading reference genome..." > {log}
+            wget -q --show-progress -O {output.genome}.gz \
+                "ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_38/GRCh38.primary_assembly.genome.fa.gz" \
+                >> {log} 2>&1
+            gunzip {output.genome}.gz >> {log} 2>&1
+        fi
+
+        # Download annotation if not present
+        if [ ! -f {output.annotation} ]; then
+            echo "Downloading gene annotation..." >> {log}
+            wget -q --show-progress -O {output.annotation}.gz \
+                "ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_38/gencode.v38.primary_assembly.annotation.gtf.gz" \
+                >> {log} 2>&1
+            gunzip {output.annotation}.gz >> {log} 2>&1
+        fi
+
+        echo "Reference files ready" >> {log}
+        """
+
+rule star_index:
+    """Build STAR genome index"""
+    input:
+        fasta=config["reference"]["genome_fasta"],
+        gtf=config["reference"]["annotation_gtf"]
+    output:
+        directory(config["reference"]["star_index"])
+    params:
+        sjdb_overhang=config["params"]["star"]["sjdbOverhang"],
+        extra_params=config["params"]["star"].get("extra_params", "")
+    log:
+        "../results/logs/star_index.log"
+    threads: config["resources"]["threads"]
+    resources:
+        mem_gb=config["resources"]["memory_gb"]
+    conda:
+        "envs/alignment.yaml"
+    shell:
+        """
+        STAR \
+            --runThreadN {threads} \
+            --runMode genomeGenerate \
+            --genomeDir {output} \
+            --genomeFastaFiles {input.fasta} \
+            --sjdbGTFfile {input.gtf} \
+            --sjdbOverhang {params.sjdb_overhang} \
+            --limitGenomeGenerateRAM {resources.mem_gb}000000000 \
+            > {log} 2>&1
+        """
+
+# ==============================================================================
+# ALIGNMENT RULES
+# ==============================================================================
+
+rule star_align:
+    """Align reads to genome with STAR"""
+    input:
+        r1="../results/02_trimmed_fastq/{sample}_R1.trimmed.fastq.gz",
+        r2="../results/02_trimmed_fastq/{sample}_R2.trimmed.fastq.gz",
+        index=config["reference"]["star_index"]
+    output:
+        bam="../results/04_star_alignment/{sample}_Aligned.sortedByCoord.out.bam",
+        log_final="../results/04_star_alignment/{sample}_Log.final.out",
+        log_out="../results/04_star_alignment/{sample}_Log.out",
+        log_progress="../results/04_star_alignment/{sample}_Log.progress.out"
+    params:
+        prefix="../results/04_star_alignment/{sample}_",
+        extra_params=config["params"]["star"].get("extra_params", "")
+    log:
+        "../results/logs/star_align/{sample}.log"
+    threads: config["resources"]["threads"]
+    resources:
+        mem_gb=config["resources"]["memory_gb"]
+    conda:
+        "envs/alignment.yaml"
+    shell:
+        """
+        STAR \
+            --runThreadN {threads} \
+            --genomeDir {input.index} \
+            --readFilesIn {input.r1} {input.r2} \
+            --readFilesCommand zcat \
+            --outFileNamePrefix {params.prefix} \
+            --outSAMtype BAM SortedByCoordinate \
+            --outSAMunmapped Within \
+            --limitBAMsortRAM {resources.mem_gb}000000000 \
+            {params.extra_params} \
+            > {log} 2>&1
+        """
+
+rule samtools_index:
+    """Index BAM files"""
+    input:
+        "../results/04_star_alignment/{sample}_Aligned.sortedByCoord.out.bam"
+    output:
+        "../results/04_star_alignment/{sample}_Aligned.sortedByCoord.out.bam.bai"
+    log:
+        "../results/logs/samtools_index/{sample}.log"
+    threads: 2
+    conda:
+        "envs/alignment.yaml"
+    shell:
+        """
+        samtools index -@ {threads} {input} > {log} 2>&1
+        """
+
+# ==============================================================================
+# QUANTIFICATION RULES
+# ==============================================================================
+
+rule featurecounts:
+    """Count reads mapping to genes"""
+    input:
+        bams=get_all_bams(),
+        gtf=config["reference"]["annotation_gtf"]
+    output:
+        counts="../results/05_featurecounts/raw_counts.tsv",
+        summary="../results/05_featurecounts/raw_counts.tsv.summary"
+    params:
+        strand=config["params"]["featureCounts"]["strand"],
+        feature_type=config["params"]["featureCounts"]["feature_type"],
+        attribute_type=config["params"]["featureCounts"]["attribute_type"],
+        extra_params=config["params"]["featureCounts"].get("extra_params", "")
+    log:
+        "../results/logs/featurecounts.log"
+    threads: config["resources"]["threads"]
+    conda:
+        "envs/quantification.yaml"
+    shell:
+        """
+        featureCounts \
+            -T {threads} \
+            -p \
+            -s {params.strand} \
+            -t {params.feature_type} \
+            -g {params.attribute_type} \
+            -a {input.gtf} \
+            -o {output.counts} \
+            {params.extra_params} \
+            {input.bams} \
+            > {log} 2>&1
+        """
+
+# ==============================================================================
+# QUALITY CONTROL SUMMARY
+# ==============================================================================
+
+rule multiqc:
+    """Generate comprehensive QC report with MultiQC"""
+    input:
+        # FastQC reports
+        expand("../results/01_fastqc_raw/{sample}_{read}_fastqc.zip", sample=SAMPLES, read=["R1", "R2"]),
+        expand("../results/03_fastqc_trimmed/{sample}_{read}.trimmed_fastqc.zip", sample=SAMPLES, read=["R1", "R2"]),
+
+        # fastp reports
+        expand("../results/02_trimmed_fastq/{sample}.fastp.json", sample=SAMPLES),
+
+        # STAR logs
+        expand("../results/04_star_alignment/{sample}_Log.final.out", sample=SAMPLES),
+
+        # featureCounts summary
+        "../results/05_featurecounts/raw_counts.tsv.summary"
+    output:
+        "../results/06_multiqc/multiqc_report.html"
+    params:
+        input_dir="../results",
+        output_dir="../results/06_multiqc",
+        title=config["params"]["multiqc"]["title"],
+        extra_params=config["params"]["multiqc"].get("extra_params", "")
+    log:
+        "../results/logs/multiqc.log"
+    conda:
+        "envs/qc.yaml"
+    shell:
+        """
+        multiqc \
+            {params.input_dir} \
+            -o {params.output_dir} \
+            --title "{params.title}" \
+            --force \
+            {params.extra_params} \
+            > {log} 2>&1
+        """
+
+# ==============================================================================
+# DIFFERENTIAL EXPRESSION ANALYSIS
+# ==============================================================================
+
+rule run_deseq2_analysis:
+    """Run automated differential expression analysis with R/DESeq2"""
+    input:
+        counts="../results/05_featurecounts/raw_counts.tsv",
+        metadata="../config/metadata.tsv"
+    output:
+        results="../results/analysis_R/deseq2_full_results.csv",
+        up_genes="../results/analysis_R/up_regulated_genes.csv",
+        down_genes="../results/analysis_R/down_regulated_genes.csv",
+        pca_plot="../results/analysis_R/pca_plot.png",
+        volcano_plot="../results/analysis_R/volcano_plot.png"
+    params:
+        output_dir="../results/analysis_R",
+        padj_threshold=config["analysis"]["thresholds"]["padj"],
+        log2fc_threshold=config["analysis"]["thresholds"]["log2fc"]
+    log:
+        "../results/logs/deseq2_analysis.log"
+    threads: 4
+    conda:
+        "envs/analysis.yaml"
+    script:
+        "../scripts/interpret_results.R"
+
+rule run_python_analysis:
+    """Run automated differential expression analysis with Python/PyDESeq2"""
+    input:
+        counts="../results/05_featurecounts/raw_counts.tsv",
+        metadata="../config/metadata.tsv"
+    output:
+        results="../results/analysis_python/pydeseq2_full_results.csv",
+        up_genes="../results/analysis_python/up_regulated_genes.csv",
+        down_genes="../results/analysis_python/down_regulated_genes.csv",
+        pca_plot="../results/analysis_python/pca_plot.png",
+        volcano_plot="../results/analysis_python/volcano_plot.png"
+    params:
+        output_dir="../results/analysis_python",
+        padj_threshold=config["analysis"]["thresholds"]["padj"],
+        log2fc_threshold=config["analysis"]["thresholds"]["log2fc"]
+    log:
+        "../results/logs/python_analysis.log"
+    threads: 4
+    conda:
+        "envs/analysis.yaml"
+    script:
+        "../scripts/interpret_results.py"
+
+rule analysis_summary:
+    """Create analysis summary"""
+    input:
+        multiqc="../results/06_multiqc/multiqc_report.html",
+        counts="../results/05_featurecounts/raw_counts.tsv",
+        # Optional: analysis results if scripts exist
+        # r_results="../results/analysis_R/deseq2_full_results.csv",
+        # python_results="../results/analysis_python/pydeseq2_full_results.csv"
+    output:
+        "../results/analysis_summary.txt"
+    log:
+        "../results/logs/analysis_summary.log"
+    shell:
+        """
+        echo "RNA-Seq Analysis Pipeline Summary" > {output}
+        echo "=================================" >> {output}
+        echo "" >> {output}
+        echo "Analysis completed on: $(date)" >> {output}
+        echo "Samples processed: {SAMPLES}" >> {output}
+        echo "" >> {output}
+        echo "Key output files:" >> {output}
+        echo "- Gene count matrix: {input.counts}" >> {output}
+        echo "- MultiQC report: {input.multiqc}" >> {output}
+        echo "" >> {output}
+        echo "Next steps:" >> {output}
+        echo "1. Review MultiQC report for quality assessment" >> {output}
+        echo "2. Examine gene count matrix" >> {output}
+        echo "3. Run differential expression analysis if not already done" >> {output}
+        echo "4. Perform functional enrichment analysis" >> {output}
+
+        # Count genes and samples
+        echo "" >> {output}
+        echo "Statistics:" >> {output}
+        if [ -f {input.counts} ]; then
+            genes=$(tail -n +2 {input.counts} | wc -l)
+            samples=$(head -1 {input.counts} | awk '{{print NF-6}}')
+            echo "- Total genes: $genes" >> {output}
+            echo "- Total samples: $samples" >> {output}
+        fi
+
+        echo "Analysis summary generated successfully" > {log}
+        """
+
+# ==============================================================================
+# UTILITY RULES
+# ==============================================================================
+
+rule clean:
+    """Clean intermediate files"""
+    shell:
+        """
+        rm -rf ../results/01_fastqc_raw
+        rm -rf ../results/02_trimmed_fastq
+        rm -rf ../results/03_fastqc_trimmed
+        rm -rf ../results/04_star_alignment
+        echo "Intermediate files cleaned"
+        """
+
+rule clean_all:
+    """Clean all output files"""
+    shell:
+        """
+        rm -rf ../results/*
+        echo "All output files cleaned"
+        """
+
+# ==============================================================================
+# WORKFLOW VALIDATION
+# ==============================================================================
+
+def validate_inputs():
+    """Validate that required input files exist"""
+    required_files = []
+
+    # Check for FASTQ files
+    for sample in SAMPLES:
+        r1_file = f"../data/raw_fastq/{sample}_R1.fastq.gz"
+        r2_file = f"../data/raw_fastq/{sample}_R2.fastq.gz"
+        required_files.extend([r1_file, r2_file])
+
+    missing_files = [f for f in required_files if not os.path.exists(f)]
+
+    if missing_files:
+        raise FileNotFoundError(f"Missing required input files: {missing_files}")
+
+    print("✓ All input files validated")
+
+# Run validation when workflow is loaded
+validate_inputs()
+
+# ==============================================================================
+# WORKFLOW REPORTING
+# ==============================================================================
+
+# Generate workflow report
+report: "../docs/workflow_report.rst"

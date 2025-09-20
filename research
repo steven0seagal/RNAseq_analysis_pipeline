@@ -1,0 +1,768 @@
+Comprehensive Pipelines for RNA-Seq Differential Gene Expression Analysis and Automated InterpretationSection 1: Foundational Principles of RNA-Seq Differential Expression Analysis1.1 The Central Dogma of RNA-Seq Analysis: From Raw Reads to Biological InsightThe analysis of RNA sequencing (RNA-seq) data is a multi-stage process that transforms raw, high-throughput sequencing output into meaningful biological conclusions. The overarching goal is to leverage the quantitative nature of this technology to identify genes and pathways that are differentially regulated between distinct biological conditions, such as cancer versus healthy tissue.1 The analytical journey follows a logical progression, beginning with the fundamental quality assessment of the sequencing reads and culminating in the functional interpretation of differentially expressed genes (DEGs).The process commences with raw sequencing data, typically in the FASTQ format, which contains the nucleotide sequence for each read along with an associated quality score. The first critical phase involves rigorous quality control (QC) to identify and remove low-quality bases, sequencing adapters, and other potential artifacts that could compromise downstream analysis. This data cleaning step yields a set of high-quality reads ready for alignment.The second phase is the alignment or mapping of these quality-controlled reads to a reference genome or transcriptome. This step determines the genomic origin of each RNA fragment. For eukaryotic organisms, this requires a splice-aware aligner capable of mapping reads across introns, which are spliced out of mature messenger RNA (mRNA).4 The output of this stage is typically a Sequence Alignment Map (SAM) or its binary equivalent, the Binary Alignment Map (BAM) file, which contains detailed information about how each read aligns to the reference sequence.5Following alignment, the third phase is quantification. Here, the number of reads mapping to each gene (or transcript) is counted. This process generates a count matrix, a simple table where rows represent genes and columns represent samples, with each cell containing the raw number of reads assigned to a specific gene in a specific sample.6 This count matrix is the fundamental input for the statistical analysis of differential expression. It is crucial that this matrix contains raw, un-normalized counts, as the statistical models used in packages like DESeq2 have their own robust normalization methods that account for variations in library size and RNA composition.6The fourth and central phase is the statistical analysis to identify differentially expressed genes. Using the raw count matrix, sophisticated statistical models, typically based on the negative binomial distribution, are employed to test for significant differences in gene expression between experimental conditions while accounting for biological variability among replicates.6 The output is a results table listing every gene along with its log2 fold change, p-value, and an adjusted p-value (padj) that corrects for multiple hypothesis testing.9The final phase is interpretation and functional analysis. A list of statistically significant DEGs, while informative, does not in itself provide biological context. Therefore, functional enrichment analysis is performed to determine if the lists of up- or down-regulated genes are significantly enriched for genes associated with specific biological processes, molecular functions, or metabolic pathways, such as those defined by the Gene Ontology (GO) or Kyoto Encyclopedia of Genes and Genomes (KEGG) databases.2 This final step translates a list of gene identifiers into actionable biological hypotheses, completing the journey from raw sequence data to biological insight.1.2 Experimental Design: The Critical Importance of a 3 vs. 3 ComparisonThe reliability and interpretability of any RNA-seq experiment are fundamentally dependent on a sound experimental design. A primary objective of this design is to maximize the ability to detect true biological differences while minimizing the influence of technical noise and confounding variables. For differential expression analysis, the use of biological replicates is not merely recommended; it is an absolute necessity for robust statistical inference.A 3 vs. 3 comparison, representing three biological replicates for each of the two conditions (e.g., cancer and healthy), is widely considered a standard minimum for DGE studies. The rationale for this lies in the need to estimate the within-group biological variability. With only one or two replicates, it is statistically challenging, if not impossible, to distinguish genuine differential expression from random variation inherent among individuals or cell cultures. Three replicates per group provide a sufficient sample size to estimate the variance of gene expression for each condition, which is a critical parameter for the statistical models used by tools like DESeq2 to assess the significance of observed differences.6A major challenge in experimental design is the management of batch effects. These are sources of technical variation that are extraneous to the biological question of interest but can have a substantial impact on gene expression measurements. Batch effects can arise from numerous sources, including different personnel performing the experiments, variations in reagent lots, performing library preparations on different days, or sequencing samples across different runs or flow cells. If not properly managed, batch effects can introduce systematic biases that can be easily mistaken for true biological signals, leading to a high rate of false positives.The most effective strategy to mitigate batch effects is to randomize the experimental design. For instance, samples from both the cancer and healthy groups should be processed together in the same batch for RNA isolation, library preparation, and sequencing. This ensures that any technical variation introduced during these steps is distributed evenly across the conditions being compared, rather than being confounded with them. However, perfect randomization is not always feasible. In situations where samples must be processed in separate batches, it is imperative that the design is balanced, meaning that each batch should contain a mix of samples from all experimental conditions.If batch effects are suspected or known to exist and could not be controlled for during the experimental phase, they must be accounted for during the statistical analysis. This represents a critical consideration that can salvage an experiment from catastrophic misinterpretation. If information about the batch for each sample is recorded, it can be incorporated directly into the statistical model. For example, in DESeq2, the design formula can be adjusted from a simple ~ condition to ~ batch + condition. This modification instructs the model to first account for the variance attributable to the batch effect, and then to test for the effect of the biological condition. This statistical correction effectively isolates the biological signal of interest from the technical noise, highlighting the importance of meticulous record-keeping throughout the experimental process. Failure to account for a known batch effect is one of the most common and severe pitfalls in RNA-seq analysis.1.3 The Bioinformatics Toolkit: An Overview of Core SoftwareA standard RNA-seq analysis pipeline is composed of a series of specialized bioinformatics tools, each designed to perform a specific task in the data processing and analysis workflow. Understanding the role of each component is essential for executing the analysis, interpreting the results, and troubleshooting potential issues. The pipelines presented in this report utilize a curated set of open-source, community-standard tools that are widely recognized for their performance and robustness. The installation and management of these tools are greatly simplified by using a package manager like Conda, which automatically handles complex software dependencies.12 A summary of the key software components is provided in Table 1.ToolPurpose in PipelineOfficial DocumentationFastQCRaw sequence quality assessment to identify issues like adapter contamination or low-quality bases.https://www.bioinformatics.babraham.ac.uk/projects/fastqc/fastpAn ultra-fast tool for adapter trimming, quality filtering, and pre-processing of FASTQ data.https://github.com/OpenGene/fastpSTARA splice-aware aligner for mapping RNA-seq reads to a reference genome with high accuracy and speed.(https://github.com/alexdobin/STAR)featureCountsA highly efficient program for quantifying gene-level read counts from aligned BAM files.http://bioinf.wehi.edu.au/featureCounts/SalmonA tool for rapid transcript-level quantification from raw reads or alignments, accounting for isoform ambiguity.https://salmon.readthedocs.io/MultiQCA tool to aggregate and summarize results from multiple bioinformatics analyses into a single HTML report.https://multiqc.info/SamtoolsA suite of utilities for interacting with and manipulating high-throughput sequencing data in SAM/BAM format.http://www.htslib.org/DESeq2 (R)An R/Bioconductor package for robust statistical analysis of differential gene expression from count data.(https://bioconductor.org/packages/DESeq2/)clusterProfiler (R)An R/Bioconductor package for functional enrichment analysis (GO/KEGG) of gene lists.https://bioconductor.org/packages/clusterProfiler/SnakemakeA workflow management system for creating reproducible, scalable, and portable data analysis pipelines.https://snakemake.readthedocs.io/The workflow begins with FastQC, which provides a comprehensive diagnostic report on the quality of the raw FASTQ files. Based on this report, fastp is used to perform trimming and filtering, removing adapter sequences and low-quality regions from the reads.12 The cleaned reads are then aligned to the reference genome using STAR (Spliced Transcripts Alignment to a Reference), a powerful aligner optimized for RNA-seq data.14 The resulting BAM files are processed using Samtools for tasks such as sorting and indexing.12For gene-level quantification, featureCounts is employed to count the number of reads that map to each gene based on the provided gene annotation file.15 This produces the raw count matrix required for differential expression analysis. An alternative and increasingly popular quantification tool is Salmon, which can perform extremely fast and accurate transcript-level quantification, often in an alignment-free manner, and its results can be summarized to the gene level.6 Throughout the initial processing stages, MultiQC is used to aggregate the log files and output from FastQC, fastp, and STAR into a single, unified report, allowing for easy quality assessment across all samples at once.16The statistical analysis is conducted in the R environment using the DESeq2 package from Bioconductor. DESeq2 takes the raw count matrix as input, performs normalization, estimates variance, and fits a negative binomial model to test for differential expression between the specified conditions.6 Finally, to interpret the biological significance of the resulting gene lists, the clusterProfiler package is used to perform Gene Ontology (GO) and KEGG pathway enrichment analysis.18To orchestrate these multiple steps into a coherent and reproducible workflow, the Snakemake workflow management system is used. Snakemake allows the entire pipeline to be defined in a single Snakefile, which explicitly states the dependencies between steps, automates the execution of commands, and facilitates scalability and portability.13Section 2: Pipeline I: A Step-by-Step RNA-Seq Workflow in BashThis section details a complete RNA-seq differential expression pipeline implemented as a single, linear Bash script. This approach is highly instructive, as it clearly lays out each command in sequential order, making it an excellent starting point for users new to command-line bioinformatics or for those running smaller-scale analyses. The script is designed to be run on a Linux-based system with the necessary bioinformatics tools installed.2.1 Environment Setup and Data PreparationBefore executing the pipeline, a structured project directory and the necessary reference files must be prepared. This initial setup is crucial for maintaining an organized and reproducible analysis.2.1.1 Project Directory StructureA well-organized directory structure is essential for managing the numerous files generated during the analysis. It is recommended to create a main project directory with subdirectories for raw data, reference files, and results.Bash# Create the main project directory
+mkdir rnaseq_project
+cd rnaseq_project
+
+# Create subdirectories
+mkdir -p data/raw_fastq
+mkdir -p data/reference
+mkdir -p results/01_fastqc_raw
+mkdir -p results/02_trimmed_fastq
+mkdir -p results/03_fastqc_trimmed
+mkdir -p results/04_star_alignment
+mkdir -p results/05_featurecounts
+mkdir -p results/06_multiqc
+The raw FASTQ files (e.g., Cancer_1_R1.fastq.gz, Healthy_1_R1.fastq.gz, etc.) should be placed in the data/raw_fastq directory.2.1.2 Reference Genome and AnnotationThe analysis requires a reference genome sequence (in FASTA format) and a corresponding gene annotation file (in GTF format). For human data, GENCODE is a highly recommended source, as it provides comprehensive and regularly updated annotations that are synchronized with the primary genome assemblies.21 For this pipeline, the GRCh38 human reference assembly will be used.The following commands can be used to download the necessary files into the data/reference directory. Note that these are large files, and the download may take some time.Bash# Navigate to the reference directory
+cd data/reference
+
+# Download the primary assembly genome FASTA file from GENCODE
+wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_38/GRCh38.primary_assembly.genome.fa.gz
+
+# Download the comprehensive gene annotation GTF file
+wget ftp://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_38/gencode.v38.primary_assembly.annotation.gtf.gz
+
+# Unzip the downloaded files
+gunzip GRCh38.primary_assembly.genome.fa.gz
+gunzip gencode.v38.primary_assembly.annotation.gtf.gz
+
+cd../.. # Return to the main project directory
+2.1.3 Software Installation via CondaManaging software dependencies is a common challenge in bioinformatics. Conda is a package and environment management system that greatly simplifies this process. It is strongly recommended to create a dedicated Conda environment for the RNA-seq pipeline to ensure that all tools are installed with compatible versions and are isolated from other projects.12Bash# Create a new Conda environment named 'rnaseq' with all required tools
+conda create -n rnaseq -c bioconda -c conda-forge \
+    fastqc \
+    fastp \
+    star \
+    subread \
+    multiqc \
+    samtools
+
+# Activate the environment before running the pipeline
+conda activate rnaseq
+2.2 Step 1: Quality Control and TrimmingThe first analytical step is to assess the quality of the raw sequencing reads and remove any adapters or low-quality sequences.2.2.1 Initial Quality Assessment with FastQCFastQC generates a detailed report on various quality metrics for each FASTQ file. It is crucial to run this on the raw data to diagnose any potential issues from the sequencing run. A for loop can be used to process all samples efficiently.Bash# Run FastQC on all raw FASTQ files
+for fq in data/raw_fastq/*.fastq.gz
+do
+    fastqc -o results/01_fastqc_raw/ $fq
+done
+After running, the HTML reports in results/01_fastqc_raw/ should be inspected. Key metrics to check include "Per base sequence quality," which should ideally remain in the "very good" (green) range across the length of the read, and "Adapter Content," which will indicate if adapter sequences need to be trimmed.2.2.2 Read Trimming with fastpBased on the FastQC results, fastp is used to trim adapter sequences, remove low-quality bases, and filter out reads that are too short after trimming.12fastp is highly efficient and can automatically detect adapter sequences for paired-end reads.Bash# Loop through the sample prefixes (e.g., Cancer_1, Healthy_1)
+for sample in Cancer_1 Cancer_2 Cancer_3 Healthy_1 Healthy_2 Healthy_3
+do
+    fastp \
+        -i data/raw_fastq/${sample}_R1.fastq.gz \
+        -I data/raw_fastq/${sample}_R2.fastq.gz \
+        -o results/02_trimmed_fastq/${sample}_R1.trimmed.fastq.gz \
+        -O results/02_trimmed_fastq/${sample}_R2.trimmed.fastq.gz \
+        --html results/02_trimmed_fastq/${sample}.fastp.html \
+        --json results/02_trimmed_fastq/${sample}.fastp.json \
+        -l 25 # Minimum read length to keep after trimming
+done
+2.2.3 Post-Trimming Quality AssessmentTo confirm that the trimming process was successful, FastQC should be run again on the cleaned FASTQ files located in results/02_trimmed_fastq/.Bash# Run FastQC on all trimmed FASTQ files
+for fq in results/02_trimmed_fastq/*.trimmed.fastq.gz
+do
+    fastqc -o results/03_fastqc_trimmed/ $fq
+done
+2.2.4 Aggregated Quality Reporting with MultiQCMultiQC is an invaluable tool that scans the output directories from various bioinformatics tools and compiles them into a single, interactive HTML report. This provides a holistic view of the data quality across all samples before and after trimming.12Bash# Run MultiQC on the entire project directory
+multiqc. -o results/06_multiqc/
+The resulting report in results/06_multiqc/multiqc_report.html will contain aggregated statistics from FastQC (raw and trimmed) and fastp, making it easy to compare samples and verify the effectiveness of the trimming step.2.3 Step 2: Genome Indexing and Read AlignmentOnce the reads are cleaned, they are aligned to the reference genome using the STAR aligner. This process requires a pre-built genome index.2.3.1 Building the STAR Genome IndexThe STAR index is a set of files that allows the aligner to perform mapping rapidly. It only needs to be built once for a given reference genome and annotation combination. The --sjdbOverhang parameter is critical for accurate splice junction detection and should be set to the length of the sequencing reads minus one. Assuming a read length of 100 bp, the value would be 99.12Bash# Create a directory for the STAR index
+mkdir -p data/reference/star_index
+
+# Build the STAR index
+STAR \
+    --runThreadN 8 \
+    --runMode genomeGenerate \
+    --genomeDir data/reference/star_index/ \
+    --genomeFastaFiles data/reference/GRCh38.primary_assembly.genome.fa \
+    --sjdbGTFfile data/reference/gencode.v38.primary_assembly.annotation.gtf \
+    --sjdbOverhang 99
+2.3.2 Aligning Reads with STARWith the index built, a for loop can be used to align the trimmed reads for each of the six samples. The --outSAMtype BAM SortedByCoordinate option is specified to directly output a sorted BAM file, which is the required format for featureCounts and other downstream tools.15A notable feature of STAR is its ability to generate multiple types of alignments simultaneously. The standard output is a genome-aligned BAM file, which is used for visualization in genome browsers and for quantification with tools like featureCounts. However, by specifying --quantMode TranscriptomeSAM, STAR will also produce a transcriptome-aligned BAM file. This alternative output is not used in this specific Bash pipeline but is the required input for other modern quantification tools like Salmon when run in alignment-based mode.12 This demonstrates the flexibility of STAR and provides a bridge to the more advanced workflow presented in Section 3. For this pipeline, we will focus on the traditional genome-aligned output.Bash# Loop through the sample prefixes to run STAR alignment
+for sample in Cancer_1 Cancer_2 Cancer_3 Healthy_1 Healthy_2 Healthy_3
+do
+    STAR \
+        --runThreadN 8 \
+        --genomeDir data/reference/star_index/ \
+        --readFilesIn results/02_trimmed_fastq/${sample}_R1.trimmed.fastq.gz results/02_trimmed_fastq/${sample}_R2.trimmed.fastq.gz \
+        --readFilesCommand zcat \
+        --outFileNamePrefix results/04_star_alignment/${sample}_ \
+        --outSAMtype BAM SortedByCoordinate \
+        --outSAMunmapped Within \
+        --outFilterType BySJout \
+        --outFilterMultimapNmax 20 \
+        --alignSJoverhangMin 8 \
+        --alignSJDBoverhangMin 1 \
+        --outFilterMismatchNmax 999 \
+        --outFilterMismatchNoverReadLmax 0.04 \
+        --alignIntronMin 20 \
+        --alignIntronMax 1000000 \
+        --alignMatesGapMax 1000000
+done
+After this step, the results/04_star_alignment/ directory will contain a sorted BAM file (Aligned.sortedByCoord.out.bam) for each sample, along with alignment log files that can be aggregated by MultiQC.2.4 Step 3: Gene-Level QuantificationThe final step of the command-line portion of the pipeline is to quantify the number of reads that map to each gene. This is accomplished using featureCounts from the Subread package.15featureCounts takes the GTF annotation file and the BAM files from the alignment step as input and produces a single matrix of raw gene counts. It is essential to specify the correct parameters for paired-end data (-p) and for the strandness of the sequencing library (-s). Strandness can often be inferred from the library preparation kit documentation or by using tools like RSeQC. For many modern Illumina kits (e.g., TruSeq Stranded), the library is reverse stranded, corresponding to -s 2.Bash# Run featureCounts to generate the gene count matrix
+featureCounts \
+    -T 8 \
+    -p \
+    -s 2 \
+    -a data/reference/gencode.v38.primary_assembly.annotation.gtf \
+    -o results/05_featurecounts/raw_counts.tsv \
+    results/04_star_alignment/Cancer_1_Aligned.sortedByCoord.out.bam \
+    results/04_star_alignment/Cancer_2_Aligned.sortedByCoord.out.bam \
+    results/04_star_alignment/Cancer_3_Aligned.sortedByCoord.out.bam \
+    results/04_star_alignment/Healthy_1_Aligned.sortedByCoord.out.bam \
+    results/04_star_alignment/Healthy_2_Aligned.sortedByCoord.out.bam \
+    results/04_star_alignment/Healthy_3_Aligned.sortedByCoord.out.bam
+The output file, results/05_featurecounts/raw_counts.tsv, is the final product of this Bash pipeline. It is a tab-separated text file containing the raw read counts for every gene across all six samples. This file serves as the direct input for the downstream differential expression analysis detailed in Section 4.2.5 The Complete run_rnaseq_pipeline.sh ScriptFor convenience and reproducibility, all the steps described above are consolidated into a single, executable Bash script. This script uses variables at the beginning to define file paths and sample lists, making it easier to adapt for different projects.Bash#!/bin/bash
+
+# ==============================================================================
+# Comprehensive RNA-Seq Analysis Pipeline (Bash Script)
+#
+# Description: This script performs a complete RNA-seq analysis workflow,
+#              from raw FASTQ files to a gene count matrix.
+#
+# Steps:
+#   1. Raw FASTQ Quality Control (FastQC)
+#   2. Adapter and Quality Trimming (fastp)
+#   3. Post-Trimming Quality Control (FastQC)
+#   4. Genome Indexing (STAR) - if not already done
+#   5. Read Alignment (STAR)
+#   6. Gene-Level Quantification (featureCounts)
+#   7. Aggregate QC Reporting (MultiQC)
+#
+# Requirements: Conda environment with fastqc, fastp, star, subread, multiqc.
+# ==============================================================================
+
+# --- Configuration ---
+# Number of threads to use for parallel processes
+THREADS=8
+# Read length from sequencing (used for STAR index generation)
+READ_LENGTH=100
+
+# --- File Paths ---
+# Input directory for raw FASTQ files
+RAW_FASTQ_DIR="data/raw_fastq"
+# Directory for reference genome and annotation
+REF_DIR="data/reference"
+# Main output directory for results
+RESULTS_DIR="results"
+
+# --- Reference Files ---
+GENOME_FASTA="${REF_DIR}/GRCh38.primary_assembly.genome.fa"
+GTF_ANNOTATION="${REF_DIR}/gencode.v38.primary_assembly.annotation.gtf"
+STAR_INDEX_DIR="${REF_DIR}/star_index"
+
+# --- Sample List ---
+SAMPLES=("Cancer_1" "Cancer_2" "Cancer_3" "Healthy_1" "Healthy_2" "Healthy_3")
+
+# --- Create Output Directories ---
+mkdir -p "${RESULTS_DIR}/01_fastqc_raw"
+mkdir -p "${RESULTS_DIR}/02_trimmed_fastq"
+mkdir -p "${RESULTS_DIR}/03_fastqc_trimmed"
+mkdir -p "${RESULTS_DIR}/04_star_alignment"
+mkdir -p "${RESULTS_DIR}/05_featurecounts"
+mkdir -p "${RESULTS_DIR}/06_multiqc"
+
+# --- Pipeline Execution ---
+echo "===== Starting RNA-Seq Pipeline ====="
+
+# Step 1: Raw FASTQ Quality Control (FastQC)
+echo "--- Step 1: Running FastQC on raw FASTQ files ---"
+for sample in "${SAMPLES[@]}"; do
+    fastqc -o "${RESULTS_DIR}/01_fastqc_raw" "${RAW_FASTQ_DIR}/${sample}_R1.fastq.gz"
+    fastqc -o "${RESULTS_DIR}/01_fastqc_raw" "${RAW_FASTQ_DIR}/${sample}_R2.fastq.gz"
+done
+echo "--- Step 1: Complete ---"
+
+# Step 2: Adapter and Quality Trimming (fastp)
+echo "--- Step 2: Trimming reads with fastp ---"
+for sample in "${SAMPLES[@]}"; do
+    fastp \
+        -i "${RAW_FASTQ_DIR}/${sample}_R1.fastq.gz" \
+        -I "${RAW_FASTQ_DIR}/${sample}_R2.fastq.gz" \
+        -o "${RESULTS_DIR}/02_trimmed_fastq/${sample}_R1.trimmed.fastq.gz" \
+        -O "${RESULTS_DIR}/02_trimmed_fastq/${sample}_R2.trimmed.fastq.gz" \
+        --html "${RESULTS_DIR}/02_trimmed_fastq/${sample}.fastp.html" \
+        --json "${RESULTS_DIR}/02_trimmed_fastq/${sample}.fastp.json" \
+        -l 25 \
+        -w ${THREADS}
+done
+echo "--- Step 2: Complete ---"
+
+# Step 3: Post-Trimming Quality Control (FastQC)
+echo "--- Step 3: Running FastQC on trimmed FASTQ files ---"
+for sample in "${SAMPLES[@]}"; do
+    fastqc -o "${RESULTS_DIR}/03_fastqc_trimmed" "${RESULTS_DIR}/02_trimmed_fastq/${sample}_R1.trimmed.fastq.gz"
+    fastqc -o "${RESULTS_DIR}/03_fastqc_trimmed" "${RESULTS_DIR}/02_trimmed_fastq/${sample}_R2.trimmed.fastq.gz"
+done
+echo "--- Step 3: Complete ---"
+
+# Step 4: Genome Indexing (STAR)
+echo "--- Step 4: Checking for STAR Genome Index ---"
+if; then
+    echo "STAR index not found. Generating index..."
+    mkdir -p ${STAR_INDEX_DIR}
+    STAR \
+        --runThreadN ${THREADS} \
+        --runMode genomeGenerate \
+        --genomeDir ${STAR_INDEX_DIR} \
+        --genomeFastaFiles ${GENOME_FASTA} \
+        --sjdbGTFfile ${GTF_ANNOTATION} \
+        --sjdbOverhang $((${READ_LENGTH} - 1))
+    echo "STAR index generated."
+else
+    echo "STAR index already exists."
+fi
+echo "--- Step 4: Complete ---"
+
+# Step 5: Read Alignment (STAR)
+echo "--- Step 5: Aligning reads with STAR ---"
+for sample in "${SAMPLES[@]}"; do
+    STAR \
+        --runThreadN ${THREADS} \
+        --genomeDir ${STAR_INDEX_DIR} \
+        --readFilesIn "${RESULTS_DIR}/02_trimmed_fastq/${sample}_R1.trimmed.fastq.gz" "${RESULTS_DIR}/02_trimmed_fastq/${sample}_R2.trimmed.fastq.gz" \
+        --readFilesCommand zcat \
+        --outFileNamePrefix "${RESULTS_DIR}/04_star_alignment/${sample}_" \
+        --outSAMtype BAM SortedByCoordinate \
+        --outSAMunmapped Within
+done
+echo "--- Step 5: Complete ---"
+
+# Step 6: Gene-Level Quantification (featureCounts)
+echo "--- Step 6: Quantifying gene counts with featureCounts ---"
+# Create a list of BAM files for featureCounts input
+BAM_FILES=()
+for sample in "${SAMPLES[@]}"; do
+    BAM_FILES+=("${RESULTS_DIR}/04_star_alignment/${sample}_Aligned.sortedByCoord.out.bam")
+done
+
+featureCounts \
+    -T ${THREADS} \
+    -p \
+    -s 2 \
+    -a ${GTF_ANNOTATION} \
+    -o "${RESULTS_DIR}/05_featurecounts/raw_counts.tsv" \
+    "${BAM_FILES[@]}"
+echo "--- Step 6: Complete ---"
+
+# Step 7: Aggregate QC Reporting (MultiQC)
+echo "--- Step 7: Generating final MultiQC report ---"
+multiqc. -o "${RESULTS_DIR}/06_multiqc/"
+echo "--- Step 7: Complete ---"
+
+echo "===== RNA-Seq Pipeline Finished Successfully ====="
+Section 3: Pipeline II: A Scalable and Reproducible Workflow with SnakemakeWhile a Bash script provides a clear, linear execution of an analysis, modern bioinformatics demands a more robust, scalable, and reproducible approach. The Snakemake workflow management system is a powerful tool that meets these demands. It enables the creation of sophisticated data analysis pipelines that are portable, automatically parallelizable, and guaranteed to be reproducible.13 This section presents a professional-grade RNA-seq pipeline using Snakemake, representing a significant upgrade over the sequential Bash script.3.1 The Snakemake Philosophy: From Imperative to DeclarativeThe fundamental difference between a Bash script and a Snakemake workflow lies in their execution paradigm. A Bash script is imperative; it is a list of commands to be executed in a fixed order: "do this, then do that, then do this other thing." This approach is straightforward but brittle. If a step fails midway, the script must be manually restarted. If a parameter changes, the relevant lines must be found and edited. Adding new samples requires modifying the script's logic.In contrast, a Snakemake workflow is declarative. The core of the workflow, the Snakefile, does not specify the order of execution. Instead, it defines a series of rules that describe how to create output files from input files. For example, a rule might state: "to create sample_A.bam, you need sample_A.fastq.gz as input and must run the star command." Snakemake analyzes these rules to construct a directed acyclic graph (DAG) of all jobs and their dependencies. When asked to generate a final target file, Snakemake automatically determines the correct sequence of rules to execute. This declarative approach provides several key advantages 13:Reproducibility: The Snakefile serves as a complete, executable documentation of the entire analysis.Scalability: Snakemake can automatically parallelize independent jobs, efficiently utilizing multi-core servers or computational clusters.Resilience: If the workflow is interrupted, it can be resumed, and Snakemake will only re-run the jobs whose output files are missing or outdated.Flexibility: The logic of the pipeline is separated from the specific data being analyzed, making it easy to apply the same workflow to new datasets or add new samples without modifying the core code.3.2 Structuring the Snakemake ProjectA well-structured project directory is even more critical for a Snakemake workflow. The recommended structure cleanly separates the workflow logic, configuration files, input data, and results.rnaseq_snakemake_project/
+├── workflow/
+│   ├── Snakefile             # The main workflow definition
+│   └── envs/
+│       ├── alignment.yaml    # Conda environment for STAR
+│       ├── qc.yaml           # Conda environment for FastQC, etc.
+│       └── quantification.yaml # Conda environment for Subread
+├── config/
+│   ├── config.yaml           # Global configuration parameters
+│   └── samples.tsv           # Sample metadata and file paths
+├── data/
+│   ├── raw_fastq/            # Location of input FASTQ files
+│   └── reference/            # Location of reference genome/GTF
+└── results/
+    └── (All output files will be generated here)
+3.2.1 The config.yaml FileThis YAML file stores global parameters and settings for the workflow, such as file paths for reference data and parameters for specific tools. This separation of configuration from logic makes the pipeline highly adaptable.22YAML# config/config.yaml
+
+# Paths to reference files
+reference:
+  genome_fasta: "data/reference/GRCh38.primary_assembly.genome.fa"
+  annotation_gtf: "data/reference/gencode.v38.primary_assembly.annotation.gtf"
+
+# Parameters for analysis tools
+params:
+  fastp:
+    min_len: 25
+  star:
+    sjdbOverhang: 99
+  featureCounts:
+    strand: 2 # 0: unstranded, 1: stranded, 2: reverse stranded
+3.2.2 The samples.tsv FileThis tab-separated file is the primary user interface for defining the samples to be analyzed. It completely decouples the sample information from the Snakefile.22 To add or remove samples, one only needs to edit this simple text file. This design is robust and scalable, easily accommodating projects with hundreds of samples.sampleconditionCancer_1CancerCancer_2CancerCancer_3CancerHealthy_1HealthyHealthy_2HealthyHealthy_3HealthyThe Snakefile will read this file to determine the list of samples and their associated conditions. It will then use a function to locate the corresponding FASTQ files based on a consistent naming convention (e.g., data/raw_fastq/{sample}_R1.fastq.gz).3.3 The Complete SnakefileThe Snakefile contains the complete logic of the pipeline, expressed as a series of interconnected rules. Each rule specifies its input files, output files, parameters, and the command or script to be executed.A critical feature for ensuring absolute reproducibility is Snakemake's direct integration with Conda. Each rule can be associated with a specific Conda environment defined in a separate YAML file (e.g., envs/qc.yaml). When Snakemake executes a rule, it will automatically create this environment, install the exact versions of the software specified, and run the command within that isolated environment.13 This eliminates any issues related to software versions or dependencies, ensuring that the pipeline can be run by any user on any system with identical results. This is a hallmark of professional-grade, publication-ready bioinformatics workflows.Below is the complete, documented Snakefile for the RNA-seq analysis.Python# workflow/Snakefile
+
+import pandas as pd
+
+# --- Load Configuration ---
+configfile: "../config/config.yaml"
+
+# --- Load Sample Information ---
+SAMPLES_DF = pd.read_csv("../config/samples.tsv", sep="\t").set_index("sample", drop=False)
+SAMPLES = SAMPLES_DF.index.tolist()
+
+# --- Helper Function for FASTQ Paths ---
+def get_fastq(wildcards, read):
+    return f"../data/raw_fastq/{wildcards.sample}_{read}.fastq.gz"
+
+# ==============================================================================
+# Target Rule: Define the final output files for the entire pipeline
+# ==============================================================================
+rule all:
+    input:
+        "../results/05_featurecounts/raw_counts.tsv",
+        "../results/06_multiqc/multiqc_report.html"
+
+# ==============================================================================
+# Step 1: Quality Control and Trimming
+# ==============================================================================
+rule fastqc_raw:
+    input:
+        r1=get_fastq(read="R1"),
+        r2=get_fastq(read="R2")
+    output:
+        r1_html=f"../results/01_fastqc_raw/{{sample}}_R1_fastqc.html",
+        r2_html=f"../results/01_fastqc_raw/{{sample}}_R2_fastqc.html"
+    params:
+        outdir="../results/01_fastqc_raw/"
+    log:
+        "../logs/fastqc_raw/{sample}.log"
+    conda:
+        "../workflow/envs/qc.yaml"
+    shell:
+        "fastqc -o {params.outdir} {input.r1} {input.r2} > {log} 2>&1"
+
+rule fastp:
+    input:
+        r1=get_fastq(read="R1"),
+        r2=get_fastq(read="R2")
+    output:
+        r1=f"../results/02_trimmed_fastq/{{sample}}_R1.trimmed.fastq.gz",
+        r2=f"../results/02_trimmed_fastq/{{sample}}_R2.trimmed.fastq.gz",
+        html=f"../results/02_trimmed_fastq/{{sample}}.fastp.html"
+    params:
+        min_len=config["params"]["fastp"]["min_len"]
+    log:
+        "../logs/fastp/{sample}.log"
+    threads: 4
+    conda:
+        "../workflow/envs/qc.yaml"
+    shell:
+        "fastp -i {input.r1} -I {input.r2} -o {output.r1} -O {output.r2} "
+        "--html {output.html} -l {params.min_len} -w {threads} > {log} 2>&1"
+
+rule fastqc_trimmed:
+    input:
+        r1=f"../results/02_trimmed_fastq/{{sample}}_R1.trimmed.fastq.gz",
+        r2=f"../results/02_trimmed_fastq/{{sample}}_R2.trimmed.fastq.gz"
+    output:
+        r1_html=f"../results/03_fastqc_trimmed/{{sample}}_R1.trimmed_fastqc.html",
+        r2_html=f"../results/03_fastqc_trimmed/{{sample}}_R2.trimmed_fastqc.html"
+    params:
+        outdir="../results/03_fastqc_trimmed/"
+    log:
+        "../logs/fastqc_trimmed/{sample}.log"
+    conda:
+        "../workflow/envs/qc.yaml"
+    shell:
+        "fastqc -o {params.outdir} {input.r1} {input.r2} > {log} 2>&1"
+
+# ==============================================================================
+# Step 2: Genome Indexing and Read Alignment
+# ==============================================================================
+rule star_index:
+    input:
+        fasta=config["reference"]["genome_fasta"],
+        gtf=config["reference"]["annotation_gtf"]
+    output:
+        directory("../results/reference/star_index")
+    params:
+        sjdbOverhang=config["params"]["star"]["sjdbOverhang"]
+    log:
+        "../logs/star_index.log"
+    threads: 8
+    conda:
+        "../workflow/envs/alignment.yaml"
+    shell:
+        "STAR --runThreadN {threads} --runMode genomeGenerate "
+        "--genomeDir {output} --genomeFastaFiles {input.fasta} "
+        "--sjdbGTFfile {input.gtf} --sjdbOverhang {params.sjdbOverhang} > {log} 2>&1"
+
+rule star_align:
+    input:
+        r1=f"../results/02_trimmed_fastq/{{sample}}_R1.trimmed.fastq.gz",
+        r2=f"../results/02_trimmed_fastq/{{sample}}_R2.trimmed.fastq.gz",
+        index=rules.star_index.output
+    output:
+        bam=f"../results/04_star_alignment/{{sample}}_Aligned.sortedByCoord.out.bam"
+    params:
+        prefix=f"../results/04_star_alignment/{{sample}}_"
+    log:
+        "../logs/star_align/{sample}.log"
+    threads: 8
+    conda:
+        "../workflow/envs/alignment.yaml"
+    shell:
+        "STAR --runThreadN {threads} --genomeDir {input.index} "
+        "--readFilesIn {input.r1} {input.r2} --readFilesCommand zcat "
+        "--outFileNamePrefix {params.prefix} --outSAMtype BAM SortedByCoordinate "
+        "--outSAMunmapped Within > {log} 2>&1"
+
+# ==============================================================================
+# Step 3: Gene-Level Quantification
+# ==============================================================================
+rule featurecounts:
+    input:
+        bams=expand("../results/04_star_alignment/{sample}_Aligned.sortedByCoord.out.bam", sample=SAMPLES),
+        gtf=config["reference"]["annotation_gtf"]
+    output:
+        counts="../results/05_featurecounts/raw_counts.tsv"
+    params:
+        strand=config["params"]["featureCounts"]["strand"]
+    log:
+        "../logs/featurecounts.log"
+    threads: 8
+    conda:
+        "../workflow/envs/quantification.yaml"
+    shell:
+        "featureCounts -T {threads} -p -s {params.strand} -a {input.gtf} "
+        "-o {output.counts} {input.bams} > {log} 2>&1"
+
+# ==============================================================================
+# Step 4: Aggregate QC Reporting
+# ==============================================================================
+rule multiqc:
+    input:
+        expand("../results/01_fastqc_raw/{sample}_{read}_fastqc.html", sample=SAMPLES, read=),
+        expand("../results/02_trimmed_fastq/{sample}.fastp.html", sample=SAMPLES),
+        expand("../results/03_fastqc_trimmed/{sample}_{read}.trimmed_fastqc.html", sample=SAMPLES, read=),
+        expand("../results/04_star_alignment/{sample}_Log.final.out", sample=SAMPLES)
+    output:
+        "../results/06_multiqc/multiqc_report.html"
+    log:
+        "../logs/multiqc.log"
+    conda:
+        "../workflow/envs/qc.yaml"
+    shell:
+        "multiqc../results -o../results/06_multiqc > {log} 2>&1"
+The corresponding Conda environment files (e.g., workflow/envs/qc.yaml) would be simple text files:YAML# workflow/envs/qc.yaml
+channels:
+  - bioconda
+  - conda-forge
+dependencies:
+  - fastqc=0.11.9
+  - fastp=0.23.2
+  - multiqc=1.14
+3.4 Execution and OutputWith the project structure, configuration files, and Snakefile in place, executing the entire pipeline becomes remarkably simple. The user navigates to the workflow/ directory and issues a single command.Bash# Navigate to the workflow directory
+cd rnaseq_snakemake_project/workflow/
+
+# Perform a dry-run to see the plan of execution
+snakemake -n
+
+# Execute the full pipeline using 8 cores and Conda environments
+snakemake --use-conda --cores 8
+Snakemake will read the Snakefile, identify the final target files specified in rule all, build the dependency graph, create the necessary Conda environments, and execute all required jobs in parallel. The output files will be neatly organized in the results/ directory, identical in content to those produced by the Bash script but generated through a far more robust and reproducible process.Section 4: Automated Interpretation and Visualization of Differential Expression ResultsThe generation of a raw gene count matrix, whether via a Bash script or a Snakemake workflow, is only the midpoint of an RNA-seq analysis. The ultimate goal is to extract biological meaning from these counts. This section provides two complete, parallel scripts—one in R and one in Python—to automate the entire downstream analysis. These scripts take the count matrix as input and perform three critical functions:Statistical Analysis: Identify genes that are differentially expressed between the cancer and healthy conditions.Visualization: Generate a suite of publication-quality plots to visualize the results and assess data quality.Functional Enrichment: Translate the lists of differentially expressed genes into an understanding of the underlying biological pathways and processes that are perturbed.4.1 The Statistical Heart: Differential Expression with DESeq2 and PyDESeq2The core of the analysis is performed using DESeq2 (in R) or its Python port, PyDESeq2. Both packages implement a robust statistical model based on the negative binomial distribution to identify DEGs from raw count data.64.1.1 R Implementation using DESeq2R, with the Bioconductor project, is the traditional and most mature ecosystem for genomic data analysis. The DESeq2 package is the gold standard for DGE analysis.6 The script requires two input files: the raw_counts.tsv file from featureCounts and a simple metadata.tsv file that links each sample to its condition.metadata.tsv:sample_id	condition
+Cancer_1	Cancer
+Cancer_2	Cancer
+Cancer_3	Cancer
+Healthy_1	Healthy
+Healthy_2	Healthy
+Healthy_3	Healthy
+The R script will first load these files, construct a DESeqDataSet object, and then run the analysis. The design formula (~ condition) tells DESeq2 to model the gene counts based on the condition variable (Cancer vs. Healthy).114.1.2 Python Implementation using PyDESeq2For users who prefer a Python-based environment, the pydeseq2 library provides a faithful implementation of the DESeq2 methodology.26 The process is conceptually identical to the R workflow: load the count and metadata files using the pandas library, initialize a DeseqDataSet object, and run the statistical tests.4.2 Parsing the Results: Identifying Significant GenesThe output of DESeq2 or PyDESeq2 is a comprehensive results table containing statistical metrics for every gene. Understanding these columns is essential for correctly identifying significant DEGs.Column NameDescriptionHow to InterpretbaseMeanThe average normalized count for a gene across all samples.A measure of the gene's overall expression level. Useful for filtering out very lowly expressed genes.log2FoldChangeThe log base 2 of the fold change between the two conditions (e.g., Cancer vs. Healthy).Positive values mean up-regulation in the first condition (Cancer); negative values mean down-regulation. A value of 1 corresponds to a 2-fold increase; a value of 2 corresponds to a 4-fold increase, and so on.lfcSEThe standard error of the log2 fold change estimate.A measure of the uncertainty or variability in the fold change estimate.statThe Wald statistic, calculated as log2FoldChange / lfcSE.A measure of the strength of evidence against the null hypothesis (that the fold change is zero).pvalueThe raw p-value from the Wald test.Indicates the probability of observing the data if there were no real difference. This should not be used for significance filtering due to the multiple testing problem.padjThe p-value adjusted for multiple testing (typically using the Benjamini-Hochberg method).This is the primary value for determining statistical significance. It controls the False Discovery Rate (FDR). A common threshold is padj < 0.05, which implies that no more than 5% of the genes identified as significant are expected to be false positives.Both the R and Python scripts will automatically filter this results table based on user-defined thresholds for padj (e.g., < 0.05) and the absolute log2FoldChange (e.g., > 1, corresponding to a 2-fold change). The scripts will then save separate lists of significantly up-regulated and down-regulated genes to CSV files for further inspection.4.3 Automated Publication-Quality VisualizationsVisualizations are critical for quality control and for communicating results. The interpretation scripts will automatically generate and save a standard set of plots.Principal Component Analysis (PCA) Plot: This is an essential quality control plot. It reduces the high-dimensional gene expression data into two dimensions (the principal components) to visualize the clustering of samples. In a well-behaved experiment, biological replicates should cluster closely together, and the different experimental conditions should separate along one of the top principal components. This plot provides a global overview of the data and can help identify sample swaps or outliers.Volcano Plot: This is a powerful visualization of the differential expression results. It plots the statistical significance (-log10(padj)) on the y-axis against the magnitude of change (log2FoldChange) on the x-axis. Genes that are highly statistically significant appear towards the top of the plot, while genes with large fold changes appear towards the sides. The most interesting genes—those that are both highly significant and show large changes in expression—are found in the top-left and top-right corners of the "volcano".28 The scripts will color the significant up- and down-regulated genes, making them easy to identify.Clustered Heatmap: This visualization shows the expression patterns of the most significant DEGs across all samples. The script will select the top 50 genes with the lowest padj values and plot their normalized expression levels as a heatmap. Both the genes (rows) and the samples (columns) are clustered based on their expression similarity. This typically reveals a clear pattern where the up-regulated genes show high expression in the cancer samples and low expression in the healthy samples, and vice versa for the down-regulated genes.30 This plot provides direct visual confirmation of the differential expression patterns driving the statistical results.4.4 From Genes to Function: Automated Enrichment AnalysisThe ultimate goal for a biologist is to understand the functional consequences of the observed changes in gene expression. A list of 500 significant gene IDs is not, by itself, interpretable. The crucial final step is to perform functional enrichment analysis to determine which biological pathways or processes are over-represented in the list of DEGs. This directly addresses the core biological question: "What are these differentially expressed genes doing?".10The scripts will take the lists of up- and down-regulated genes and use them as input for Gene Ontology (GO) and KEGG pathway analysis.Gene Ontology (GO) analysis tests for the enrichment of terms related to three domains: Biological Process (e.g., "cell cycle," "immune response"), Molecular Function (e.g., "protein kinase activity," "transcription factor binding"), and Cellular Component (e.g., "nucleus," "mitochondrion").18KEGG (Kyoto Encyclopedia of Genes and Genomes) pathway analysis tests for the enrichment of genes within well-defined metabolic and signaling pathways (e.g., "Pathways in cancer," "MAPK signaling pathway").19By automating this step, the scripts provide a massive leap in value, transforming the raw statistical output into a ranked list of perturbed biological functions. This output is directly actionable, providing the foundation for generating new hypotheses and designing follow-up experiments. The results are typically visualized as dot plots or bar charts, showing the most significantly enriched pathways and the number of genes from the list that fall into each pathway.4.5 The Complete interpret_results.R and interpret_results.py ScriptsThe following sections provide the complete, heavily commented scripts for automated downstream analysis in both R and Python. Each script is self-contained and designed to be run after the count matrix has been generated.4.5.1 R Script: interpret_results.RR#!/usr/bin/env Rscript
+
+# ==============================================================================
+# Automated RNA-Seq Downstream Analysis and Visualization in R
+#
+# Description: This script performs differential expression analysis using DESeq2,
+#              generates publication-quality visualizations (PCA, Volcano, Heatmap),
+#              and conducts functional enrichment analysis (GO & KEGG) using
+#              clusterProfiler.
+#
+# Usage: Rscript interpret_results.R <counts_file> <metadata_file> <output_dir>
+#
+# Example: Rscript interpret_results.R raw_counts.tsv metadata.tsv deseq2_results
+#
+# Requirements: DESeq2, pheatmap, RColorBrewer, ggplot2, ggrepel,
+#               clusterProfiler, org.Hs.eg.db, AnnotationDbi
+# ==============================================================================
+
+# --- Load Libraries ---
+suppressPackageStartupMessages({
+    library(DESeq2)
+    library(pheatmap)
+    library(RColorBrewer)
+    library(ggplot2)
+    library(ggrepel)
+    library(clusterProfiler)
+    library(org.Hs.eg.db)
+    library(AnnotationDbi)
+})
+
+# --- Command Line Arguments ---
+args <- commandArgs(trailingOnly = TRUE)
+if (length(args)!= 3) {
+    stop("Usage: Rscript interpret_results.R <counts_file> <metadata_file> <output_dir>", call. = FALSE)
+}
+counts_file <- args
+metadata_file <- args
+output_dir <- args
+
+# --- Create Output Directory ---
+dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+
+# --- Set Thresholds ---
+PADJ_THRESHOLD <- 0.05
+LOG2FC_THRESHOLD <- 1.0
+
+# ==============================================================================
+# 1. Data Loading and Pre-processing
+# ==============================================================================
+cat("--- 1. Loading and pre-processing data ---\n")
+
+# Load count data from featureCounts
+count_data <- read.table(counts_file, header = TRUE, row.names = 1, sep = "\t", check.names = FALSE)
+# Clean up column names and select only count columns
+count_data <- count_data[, 6:ncol(count_data)]
+colnames(count_data) <- gsub("_Aligned.sortedByCoord.out.bam", "", colnames(count_data))
+colnames(count_data) <- gsub("results.04_star_alignment.", "", colnames(count_data))
+
+
+# Load metadata
+metadata <- read.table(metadata_file, header = TRUE, row.names = 1, sep = "\t")
+
+# Ensure sample order matches between counts and metadata
+all(rownames(metadata) == colnames(count_data))
+count_data <- count_data[, rownames(metadata)]
+all(rownames(metadata) == colnames(count_data))
+
+# ==============================================================================
+# 2. DESeq2 Differential Expression Analysis
+# ==============================================================================
+cat("--- 2. Running DESeq2 analysis ---\n")
+
+# Create DESeqDataSet object
+# Assuming the 'condition' column in metadata has two levels, e.g., 'Cancer' and 'Healthy'
+# And assuming 'Healthy' should be the reference level
+metadata$condition <- factor(metadata$condition, levels = c("Healthy", "Cancer"))
+dds <- DESeqDataSetFromMatrix(countData = count_data,
+                              colData = metadata,
+                              design = ~ condition)
+
+# Pre-filter genes with very low counts
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+# Run DESeq2
+dds <- DESeq(dds)
+
+# Get results
+# The contrast specifies 'Cancer' vs 'Healthy'
+res <- results(dds, contrast = c("condition", "Cancer", "Healthy"))
+res_df <- as.data.frame(res)
+res_df <- na.omit(res_df) # Remove rows with NA values
+
+# Save full results table
+write.csv(res_df, file.path(output_dir, "deseq2_full_results.csv"))
+
+# ==============================================================================
+# 3. Parsing Results and Saving Gene Lists
+# ==============================================================================
+cat("--- 3. Identifying and saving significant gene lists ---\n")
+
+# Identify significant genes
+sig_genes <- subset(res_df, padj < PADJ_THRESHOLD & abs(log2FoldChange) > LOG2FC_THRESHOLD)
+
+# Separate into up- and down-regulated
+up_regulated <- subset(sig_genes, log2FoldChange > 0)
+down_regulated <- subset(sig_genes, log2FoldChange < 0)
+
+# Add gene symbols to results
+up_regulated$symbol <- mapIds(org.Hs.eg.db, keys=rownames(up_regulated), column="SYMBOL", keytype="ENSEMBL", multiVals="first")
+down_regulated$symbol <- mapIds(org.Hs.eg.db, keys=rownames(down_regulated), column="SYMBOL", keytype="ENSEMBL", multiVals="first")
+
+# Save gene lists
+write.csv(up_regulated, file.path(output_dir, "up_regulated_genes.csv"))
+write.csv(down_regulated, file.path(output_dir, "down_regulated_genes.csv"))
+
+cat(paste("Found", nrow(up_regulated), "up-regulated genes and", nrow(down_regulated), "down-regulated genes.\n"))
+
+# ==============================================================================
+# 4. Generating Visualizations
+# ==============================================================================
+cat("--- 4. Generating visualizations ---\n")
+
+# --- PCA Plot ---
+vsd <- vst(dds, blind = FALSE)
+pca_data <- plotPCA(vsd, intgroup = "condition", returnData = TRUE)
+percent_var <- round(100 * attr(pca_data, "percentVar"))
+
+pca_plot <- ggplot(pca_data, aes(x = PC1, y = PC2, color = condition)) +
+    geom_point(size = 3) +
+    xlab(paste0("PC1: ", percent_var, "% variance")) +
+    ylab(paste0("PC2: ", percent_var, "% variance")) +
+    coord_fixed() +
+    ggtitle("PCA Plot") +
+    theme_bw()
+ggsave(file.path(output_dir, "pca_plot.png"), plot = pca_plot, width = 8, height = 6)
+
+# --- Volcano Plot ---
+res_df$diffexpressed <- "NO"
+res_df$diffexpressed <- "UP"
+res_df$diffexpressed <- "DOWN"
+res_df$delabel <- NA
+res_df$delabel[res_df$diffexpressed!= "NO"] <- mapIds(org.Hs.eg.db, keys=rownames(res_df[res_df$diffexpressed!= "NO",]), column="SYMBOL", keytype="ENSEMBL", multiVals="first")
+
+volcano_plot <- ggplot(data = res_df, aes(x = log2FoldChange, y = -log10(padj), col = diffexpressed, label = delabel)) +
+    geom_point() +
+    theme_minimal() +
+    geom_text_repel(max.overlaps = 15) +
+    scale_color_manual(values = c("DOWN" = "blue", "NO" = "grey", "UP" = "red")) +
+    geom_vline(xintercept = c(-LOG2FC_THRESHOLD, LOG2FC_THRESHOLD), col = "black", linetype = "dashed") +
+    geom_hline(yintercept = -log10(PADJ_THRESHOLD), col = "black", linetype = "dashed") +
+    ggtitle("Volcano Plot")
+ggsave(file.path(output_dir, "volcano_plot.png"), plot = volcano_plot, width = 10, height = 8)
+
+# --- Heatmap of Top 50 DEGs ---
+if (nrow(sig_genes) > 1) {
+    top_sig_genes <- head(sig_genes[order(sig_genes$padj), ], 50)
+    norm_counts <- counts(dds, normalized = TRUE)
+    heatmap_matrix <- norm_counts[rownames(top_sig_genes), ]
+    heatmap_matrix_scaled <- t(scale(t(heatmap_matrix)))
+
+    pheatmap(heatmap_matrix_scaled,
+             cluster_rows = TRUE,
+             show_rownames = TRUE,
+             cluster_cols = TRUE,
+             annotation_col = metadata[, "condition", drop=F],
+             main = "Heatmap of Top 50 DEGs",
+             filename = file.path(output_dir, "heatmap_top50_degs.png"))
+}
+
+# ==============================================================================
+# 5. Functional Enrichment Analysis
+# ==============================================================================
+cat("--- 5. Performing functional enrichment analysis ---\n")
+
+# Get ENSEMBL IDs without version number for clusterProfiler
+get_ensembl_id <- function(id_vector) {
+    sapply(strsplit(id_vector, "\\."), `
+    counts_df.columns =
+    counts_df.columns = [col.replace('results/04_star_alignment/', '') for col in counts_df.columns]
+    
+    # Ensure sample order matches
+    counts_df = counts_df[metadata_df.index]
+    
+    # ==========================================================================
+    # 2. PyDESeq2 Differential Expression Analysis
+    # ==========================================================================
+    print("--- 2. Running PyDESeq2 analysis ---")
+    
+    # Create DeseqDataSet object
+    dds = DeseqDataSet(
+        counts=counts_df.T,
+        metadata=metadata_df,
+        design_factors="condition",
+        ref_level=["condition", "Healthy"]
+    )
+    
+    # Run DESeq2
+    dds.deseq2()
+    
+    # Get results
+    stat_res = DeseqStats(dds, contrast=["condition", "Cancer", "Healthy"])
+    res_df = stat_res.summary().reset_index().rename(columns={'index': 'gene_id'})
+    res_df.set_index('gene_id', inplace=True)
+    res_df.to_csv(os.path.join(output_dir, "pydeseq2_full_results.csv"))
+
+    # ==========================================================================
+    # 3. Parsing Results and Saving Gene Lists
+    # ==========================================================================
+    print("--- 3. Identifying and saving significant gene lists ---")
+    
+    # Identify significant genes
+    sig_genes = res_df[(res_df['padj'] < PADJ_THRESHOLD) & (abs(res_df['log2FoldChange']) > LOG2FC_THRESHOLD)]
+    
+    up_regulated = sig_genes[sig_genes['log2FoldChange'] > 0]
+    down_regulated = sig_genes[sig_genes['log2FoldChange'] < 0]
+
+    up_regulated.to_csv(os.path.join(output_dir, "up_regulated_genes.csv"))
+    down_regulated.to_csv(os.path.join(output_dir, "down_regulated_genes.csv"))
+
+    print(f"Found {len(up_regulated)} up-regulated genes and {len(down_regulated)} down-regulated genes.")
+
+    # ==========================================================================
+    # 4. Generating Visualizations
+    # ==========================================================================
+    print("--- 4. Generating visualizations ---")
+    
+    # --- PCA Plot ---
+    normalized_counts = dds.varm['normed_counts']
+    scaler = StandardScaler()
+    scaled_counts = scaler.fit_transform(normalized_counts.T)
+    pca = PCA(n_components=2)
+    principal_components = pca.fit_transform(scaled_counts)
+    
+    pca_df = pd.DataFrame(data=principal_components, columns=['PC1', 'PC2'], index=metadata_df.index)
+    pca_df = pd.concat([pca_df, metadata_df], axis=1)
+    
+    plt.figure(figsize=(8, 6))
+    sns.scatterplot(x='PC1', y='PC2', hue='condition', data=pca_df, s=100)
+    plt.title('PCA Plot')
+    plt.xlabel(f'PC1: {pca.explained_variance_ratio_*100:.2f}% variance')
+    plt.ylabel(f'PC2: {pca.explained_variance_ratio_*100:.2f}% variance')
+    plt.savefig(os.path.join(output_dir, "pca_plot.png"))
+    plt.close()
+
+    # --- Volcano Plot ---
+    res_df['diffexpressed'] = 'NO'
+    res_df.loc[(res_df['log2FoldChange'] > LOG2FC_THRESHOLD) & (res_df['padj'] < PADJ_THRESHOLD), 'diffexpressed'] = 'UP'
+    res_df.loc[(res_df['log2FoldChange'] < -LOG2FC_THRESHOLD) & (res_df['padj'] < PADJ_THRESHOLD), 'diffexpressed'] = 'DOWN'
+    
+    plt.figure(figsize=(10, 8))
+    colors = {"UP": "red", "DOWN": "blue", "NO": "grey"}
+    sns.scatterplot(data=res_df, x='log2FoldChange', y=-np.log10(res_df['padj']), hue='diffexpressed', palette=colors, s=15)
+    
+    plt.axvline(x=LOG2FC_THRESHOLD, color='black', linestyle='--')
+    plt.axvline(x=-LOG2FC_THRESHOLD, color='black', linestyle='--')
+    plt.axhline(y=-np.log10(PADJ_THRESHOLD), color='black', linestyle='--')
+    
+    plt.title('Volcano Plot')
+    plt.xlabel('Log2 Fold Change')
+    plt.ylabel('-log10(p-adjusted)')
+    plt.savefig(os.path.join(output_dir, "volcano_plot.png"))
+    plt.close()
+
+    # --- Heatmap of Top 50 DEGs ---
+    if len(sig_genes) > 1:
+        top_sig_genes = sig_genes.sort_values('padj').head(50)
+        heatmap_matrix = dds.layers['normed_counts'].loc[top_sig_genes.index]
+        
+        sns.clustermap(heatmap_matrix,
+                       z_score=0,  # Scale rows (genes)
+                       cmap='vlag',
+                       col_colors=metadata_df['condition'].map({'Healthy': 'g', 'Cancer': 'r'}),
+                       figsize=(10, 15))
+        plt.savefig(os.path.join(output_dir, "heatmap_top50_degs.png"))
+        plt.close()
+
+    # ==========================================================================
+    # 5. Functional Enrichment Analysis
+    # ==========================================================================
+    print("--- 5. Performing functional enrichment analysis ---")
+    
+    gene_sets =
+    
+    # --- Enrichment for Up-regulated genes ---
+    if not up_regulated.empty:
+        enr_up = gp.enrichr(gene_list=up_regulated.index.tolist(),
+                            gene_sets=gene_sets,
+                            organism='human',
+                            outdir=os.path.join(output_dir, 'enrichr_up_regulated'),
+                            cutoff=0.05)
+    
+    # --- Enrichment for Down-regulated genes ---
+    if not down_regulated.empty:
+        enr_down = gp.enrichr(gene_list=down_regulated.index.tolist(),
+                              gene_sets=gene_sets,
+                              organism='human',
+                              outdir=os.path.join(output_dir, 'enrichr_down_regulated'),
+                              cutoff=0.05)
+    
+    print(f"--- Analysis complete. Results are in: {output_dir} ---")
+
+
+if __name__ == '__main__':
+    if len(sys.argv)!= 4:
+        print("Usage: python interpret_results.py <counts_file> <metadata_file> <output_dir>")
+        sys.exit(1)
+    
+    counts_file = sys.argv
+    metadata_file = sys.argv
+    output_dir = sys.argv
+    
+    main(counts_file, metadata_file, output_dir)
+Section 5: Conclusions and RecommendationsThis report has provided two comprehensive, end-to-end pipelines for the analysis of RNA-seq differential expression data, tailored for a 3 vs. 3 experimental design comparing cancer and healthy samples. The first pipeline, a linear Bash script, offers a didactic and straightforward approach suitable for smaller projects and for users wishing to understand the sequential nature of the analysis. The second, a more advanced workflow using Snakemake, represents the current best practice in bioinformatics, offering superior reproducibility, scalability, and robustness through its declarative structure and integrated environment management.The primary advantage of the Snakemake workflow is its inherent reproducibility. By defining specific software versions in Conda environment files and linking them to individual rules, the Snakemake pipeline ensures that the analysis can be replicated precisely by any researcher on any system, a cornerstone of modern computational science. Furthermore, its ability to automatically parallelize tasks and intelligently resume failed runs makes it far more efficient and scalable for larger datasets than a simple Bash script. For any long-term or publication-focused research, adopting a workflow management system like Snakemake is strongly recommended.Beyond the core data processing, this report delivers a critical component for translational research: automated interpretation scripts in both R and Python. These scripts bridge the gap between statistical output and biological insight. They not only perform the differential expression analysis but also automatically generate a suite of essential, publication-quality visualizations and, most importantly, conduct functional enrichment analysis. The automated generation of GO and KEGG enrichment results transforms an otherwise static list of gene names into a dynamic view of the perturbed biological landscape, providing immediate, hypothesis-generating information about the underlying cellular processes affected in the cancer state.Recommendations for Implementation:Start with the Data: Before running either pipeline, meticulously review the experimental design and sample metadata. The most critical step is to identify any potential batch effects. If batches exist, ensure this information is recorded in the metadata file so it can be incorporated into the DESeq2 statistical model (design = ~ batch + condition).Choose the Right Pipeline: For initial exploration or a one-off analysis, the Bash script is a viable option. For any ongoing research, multiple projects, or analyses intended for publication, investing the time to use the Snakemake workflow will yield significant benefits in efficiency and reproducibility.Leverage Automated Interpretation: Utilize the provided R or Python interpretation scripts as the final step. The generated plots (PCA, Volcano, Heatmap) serve as crucial quality control checkpoints and provide a clear visual summary of the results.Focus on Functional Results: The most valuable output for forming new biological hypotheses will be the GO and KEGG enrichment results. Examine the top enriched pathways for both up- and down-regulated genes. These pathways, rather than individual genes, often tell a more coherent story about the biological differences between the cancer and healthy states and should guide the design of subsequent validation experiments.By following these pipelines and recommendations, researchers can implement a rigorous, reproducible, and insightful analysis of their RNA-seq data, moving efficiently from raw sequencing reads to actionable biological conclusions.

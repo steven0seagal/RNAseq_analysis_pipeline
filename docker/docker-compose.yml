@@ -1,0 +1,112 @@
+# ==============================================================================
+# Docker Compose Configuration for RNA-Seq Analysis Pipeline
+#
+# This file defines services for running the RNA-seq pipeline in containers
+#
+# Usage:
+#   docker-compose up -d          # Start services
+#   docker-compose exec pipeline bash  # Enter pipeline container
+#   docker-compose down           # Stop services
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  # Main RNA-seq pipeline service
+  pipeline:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: rnaseq-pipeline:latest
+    container_name: rnaseq-pipeline
+    volumes:
+      # Mount data directories
+      - ../data:/app/data
+      - ../results:/app/results
+      - ../config:/app/config
+      # Optional: mount local scripts for development
+      - ../scripts:/app/scripts
+    working_dir: /app
+    environment:
+      - THREADS=8
+      - MEMORY_GB=32
+    # Keep container running
+    tty: true
+    stdin_open: true
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 64G
+          cpus: '16'
+        reservations:
+          memory: 8G
+          cpus: '4'
+    # Restart policy
+    restart: unless-stopped
+
+  # Jupyter notebook service for interactive analysis
+  jupyter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: rnaseq-pipeline:latest
+    container_name: rnaseq-jupyter
+    ports:
+      - "8888:8888"
+    volumes:
+      - ../data:/app/data
+      - ../results:/app/results
+      - ../config:/app/config
+      - ../notebooks:/app/notebooks
+    working_dir: /app
+    environment:
+      - JUPYTER_ENABLE_LAB=yes
+    command: >
+      bash -c "
+        conda activate rnaseq-pipeline &&
+        mkdir -p /app/notebooks &&
+        jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+          --NotebookApp.token='' --NotebookApp.password=''
+      "
+    restart: unless-stopped
+
+  # Snakemake workflow execution service
+  snakemake:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: rnaseq-pipeline:latest
+    container_name: rnaseq-snakemake
+    volumes:
+      - ../data:/app/data
+      - ../results:/app/results
+      - ../config:/app/config
+      - ../workflow:/app/workflow
+    working_dir: /app/workflow
+    environment:
+      - SNAKEMAKE_CORES=8
+    # Override default command
+    entrypoint: ["/app/entrypoint.sh"]
+    command: >
+      bash -c "
+        echo 'Snakemake service ready. To run pipeline, execute:' &&
+        echo 'docker-compose exec snakemake snakemake --use-conda --cores 8' &&
+        tail -f /dev/null
+      "
+    depends_on:
+      - pipeline
+    restart: unless-stopped
+
+# Define named volumes for persistent data
+volumes:
+  pipeline_data:
+    driver: local
+  pipeline_results:
+    driver: local
+
+# Define networks
+networks:
+  default:
+    name: rnaseq-network
+    driver: bridge

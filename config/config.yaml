@@ -1,0 +1,205 @@
+# ==============================================================================
+# RNA-Seq Analysis Pipeline Configuration
+#
+# This file contains global parameters and settings for the RNA-seq pipeline
+# ==============================================================================
+
+# === REFERENCE GENOME CONFIGURATION ===
+reference:
+  # Human genome assembly (GRCh38/hg38)
+  genome_fasta: "data/reference/GRCh38.primary_assembly.genome.fa"
+
+  # Gene annotation (GENCODE v38)
+  annotation_gtf: "data/reference/gencode.v38.primary_assembly.annotation.gtf"
+
+  # STAR genome index directory
+  star_index: "data/reference/star_index"
+
+  # Alternative genomes (uncomment to use)
+  # genome_fasta: "data/reference/GRCm39.primary_assembly.genome.fa"  # Mouse
+  # annotation_gtf: "data/reference/gencode.vM27.primary_assembly.annotation.gtf"  # Mouse
+
+# === COMPUTATIONAL RESOURCES ===
+resources:
+  # Number of CPU threads to use
+  threads: 8
+
+  # Memory in GB
+  memory_gb: 32
+
+  # Temporary directory for large intermediate files
+  tmp_dir: "/tmp"
+
+# === QUALITY CONTROL PARAMETERS ===
+params:
+  # FastQC settings
+  fastqc:
+    # Additional FastQC parameters (optional)
+    extra_params: ""
+
+  # fastp trimming parameters
+  fastp:
+    # Minimum read length after trimming
+    min_len: 25
+
+    # Quality threshold
+    qualified_quality_phred: 20
+
+    # Percentage of bases that must meet quality threshold
+    unqualified_percent_limit: 10
+
+    # Adapter trimming (auto-detection enabled by default)
+    detect_adapter_for_pe: true
+
+    # Additional fastp parameters
+    extra_params: "--cut_front --cut_tail --cut_window_size 4 --cut_mean_quality 20"
+
+  # STAR alignment parameters
+  star:
+    # Splice junction database overhang
+    # Should be ReadLength - 1 (e.g., 99 for 100bp reads)
+    sjdbOverhang: 99
+
+    # Maximum number of mismatches allowed
+    outFilterMismatchNmax: 999
+
+    # Maximum mismatch rate relative to read length
+    outFilterMismatchNoverReadLmax: 0.04
+
+    # Maximum number of multiple alignments
+    outFilterMultimapNmax: 20
+
+    # Minimum intron length
+    alignIntronMin: 20
+
+    # Maximum intron length
+    alignIntronMax: 1000000
+
+    # Maximum gap between paired-end mates
+    alignMatesGapMax: 1000000
+
+    # Additional STAR parameters
+    extra_params: "--outFilterType BySJout --alignSJoverhangMin 8 --alignSJDBoverhangMin 1"
+
+  # featureCounts quantification parameters
+  featureCounts:
+    # Strandness of sequencing library
+    # 0: unstranded
+    # 1: stranded (forward)
+    # 2: reverse stranded (most Illumina protocols)
+    strand: 2
+
+    # Feature type to count (usually 'exon')
+    feature_type: "exon"
+
+    # Attribute type for gene ID (usually 'gene_id')
+    attribute_type: "gene_id"
+
+    # Count multi-mapping reads
+    count_multimapping: false
+
+    # Count reads overlapping multiple features
+    count_overlapping: false
+
+    # Additional featureCounts parameters
+    extra_params: ""
+
+  # MultiQC reporting parameters
+  multiqc:
+    # Title for the report
+    title: "RNA-Seq Analysis Report"
+
+    # Additional MultiQC parameters
+    extra_params: "--interactive"
+
+# === DIFFERENTIAL EXPRESSION ANALYSIS ===
+analysis:
+  # Statistical significance thresholds
+  thresholds:
+    # Adjusted p-value threshold
+    padj: 0.05
+
+    # Log2 fold change threshold
+    log2fc: 1.0
+
+    # Minimum base mean expression
+    baseMean: 10
+
+  # Comparisons to perform
+  # Format: condition_1_vs_condition_2
+  contrasts:
+    - "Cancer_vs_Healthy"
+    # Add more contrasts as needed
+    # - "Treatment_vs_Control"
+
+  # Functional enrichment analysis
+  enrichment:
+    # Gene Ontology analysis
+    go:
+      enabled: true
+      # Ontology types: BP (Biological Process), MF (Molecular Function), CC (Cellular Component)
+      ontologies: ["BP", "MF", "CC"]
+      p_cutoff: 0.05
+      q_cutoff: 0.2
+
+    # KEGG pathway analysis
+    kegg:
+      enabled: true
+      organism: "hsa"  # hsa=human, mmu=mouse
+      p_cutoff: 0.05
+
+    # Additional pathway databases
+    reactome:
+      enabled: false
+      p_cutoff: 0.05
+
+# === OUTPUT CONFIGURATION ===
+output:
+  # Generate plots in multiple formats
+  plot_formats: ["png", "pdf"]
+
+  # Plot resolution (DPI)
+  dpi: 300
+
+  # Figure dimensions (inches)
+  figure_width: 10
+  figure_height: 8
+
+  # Keep intermediate files
+  keep_intermediates: false
+
+# === SAMPLE GROUPING ===
+# Define sample groups for analysis
+# This will be automatically populated from samples.tsv
+groups:
+  Cancer: []
+  Healthy: []
+
+# === EXTERNAL DATABASES ===
+databases:
+  # GENCODE release version
+  gencode_version: "38"
+
+  # Ensembl release version
+  ensembl_version: "104"
+
+  # Gene Ontology version
+  go_version: "2023-01-01"
+
+# === ADVANCED SETTINGS ===
+advanced:
+  # Use alternative quantification methods
+  salmon:
+    enabled: false
+    index_type: "puff"  # puff, fmd, or quasi
+
+  # Batch effect correction
+  batch_correction:
+    enabled: false
+    batch_column: "batch"  # Column name in metadata
+
+  # Quality filtering
+  filter_low_counts:
+    enabled: true
+    min_count: 10
+    min_samples: 3

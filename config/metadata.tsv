@@ -1,0 +1,7 @@
+sample_id	condition	batch	replicate	seq_date	library_prep	notes
+Cancer_1	Cancer	1	1	2024-01-15	TruSeq	Tumor tissue from patient C001
+Cancer_2	Cancer	1	2	2024-01-15	TruSeq	Tumor tissue from patient C002
+Cancer_3	Cancer	2	3	2024-01-22	TruSeq	Tumor tissue from patient C003
+Healthy_1	Healthy	1	1	2024-01-15	TruSeq	Normal tissue from patient H001
+Healthy_2	Healthy	1	2	2024-01-15	TruSeq	Normal tissue from patient H002
+Healthy_3	Healthy	2	3	2024-01-22	TruSeq	Normal tissue from patient H003

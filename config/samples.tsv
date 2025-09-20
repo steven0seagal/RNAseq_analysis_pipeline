@@ -1,0 +1,7 @@
+sample	condition	batch	replicate	notes
+Cancer_1	Cancer	1	1	Cancer sample replicate 1
+Cancer_2	Cancer	1	2	Cancer sample replicate 2
+Cancer_3	Cancer	2	3	Cancer sample replicate 3
+Healthy_1	Healthy	1	1	Healthy control replicate 1
+Healthy_2	Healthy	1	2	Healthy control replicate 2
+Healthy_3	Healthy	2	3	Healthy control replicate 3
