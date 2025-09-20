@@ -1,0 +1,354 @@
+# Multi-Modal RNA-Seq Analysis Pipeline Expansion Plan (todo2.txt)
+
+## Project Overview - Expanded Scope
+Based on research2.txt, expand the current RNA-seq pipeline to a comprehensive multi-modal cancer genomics analysis framework that integrates:
+- **Somatic Variant Discovery** (SNVs and Indels)
+- **Long Non-coding RNA (lncRNA) Profiling**
+- **Small RNA (miRNA) Analysis**
+- **Integrated Protein-Centric Reporting**
+
+This represents a significant expansion from basic differential expression to a complete cancer genomics analysis pipeline.
+
+## Implementation Strategy
+
+### Phase 1: Advanced Infrastructure Setup
+**Priority**: CRITICAL
+**Timeline**: Week 1-2
+
+#### 1.1 Enhanced Directory Structure
+- [ ] Create multi-modal directory architecture
+- [ ] Implement separate pipelines for total RNA-seq and small RNA-seq
+- [ ] Set up specialized output directories for variants, lncRNAs, miRNAs
+
+#### 1.2 Advanced Environment Configuration
+- [ ] Expand conda environment with GATK4, Picard Tools, miRDeep2
+- [ ] Add variant calling dependencies (VCF processing, annotation tools)
+- [ ] Include Vienna RNA package for secondary structure prediction
+- [ ] Set up R/Bioconductor packages for multi-modal analysis
+
+#### 1.3 Reference Data Expansion
+- [ ] Download and configure dbSNP database for BQSR
+- [ ] Set up COSMIC database for cancer variant annotation
+- [ ] Configure miRBase for miRNA reference sequences
+- [ ] Implement GENCODE comprehensive annotation (v41) for lncRNA support
+
+### Phase 2: Core Pipeline Extensions
+**Priority**: HIGH
+**Timeline**: Week 2-4
+
+#### 2.1 STAR 2-Pass Alignment Implementation
+- [ ] Implement STAR 2-pass mode for enhanced splice junction detection
+- [ ] Create first-pass alignment for junction discovery
+- [ ] Build augmented genome index with novel junctions
+- [ ] Execute second-pass alignment with improved accuracy
+
+#### 2.2 GATK-Compliant BAM Processing Pipeline
+- [ ] Implement AddOrReplaceReadGroups for read group assignment
+- [ ] Add MarkDuplicates for PCR duplicate removal
+- [ ] Create SplitNCigarReads for RNA-seq specific processing
+- [ ] Implement Base Quality Score Recalibration (BQSR)
+
+#### 2.3 Somatic Variant Discovery
+- [ ] Implement GATK Mutect2 for somatic variant calling
+- [ ] Create tumor-normal matched analysis framework
+- [ ] Add FilterMutectCalls for sophisticated variant filtering
+- [ ] Implement VCF processing and annotation pipeline
+
+### Phase 3: Specialized RNA-Seq Modules
+**Priority**: HIGH
+**Timeline**: Week 3-5
+
+#### 3.1 Long Non-coding RNA Analysis Module
+- [ ] Enhance gene quantification to specifically capture lncRNAs
+- [ ] Implement lncRNA-specific differential expression analysis
+- [ ] Create lncRNA annotation and classification system
+- [ ] Add lncRNA target prediction and regulatory network analysis
+
+#### 3.2 Small RNA-Seq Pipeline Development
+- [ ] Create dedicated small RNA preprocessing pipeline
+- [ ] Implement miRDeep2 integration for miRNA discovery
+- [ ] Add adapter trimming optimized for small RNAs
+- [ ] Create Bowtie-based alignment for short read mapping
+
+#### 3.3 miRNA Analysis Framework
+- [ ] Implement known miRNA quantification
+- [ ] Add novel miRNA discovery capabilities
+- [ ] Create miRNA target prediction integration
+- [ ] Implement miRNA-mRNA regulatory network analysis
+
+### Phase 4: Advanced Analysis Scripts
+**Priority**: HIGH
+**Timeline**: Week 4-6
+
+#### 4.1 Multi-Modal R Analysis Script
+- [ ] Create comprehensive interpret_results.R script
+- [ ] Implement parallel differential expression analysis (mRNA, lncRNA, miRNA)
+- [ ] Add somatic variant parsing and annotation
+- [ ] Create protein-centric integration framework
+
+#### 4.2 Integrated Data Analysis
+- [ ] Implement master summary table generation
+- [ ] Create regulatory network reconstruction
+- [ ] Add mutation impact assessment
+- [ ] Implement multi-layer data prioritization
+
+#### 4.3 Advanced Visualization Suite
+- [ ] Create multi-modal volcano plots
+- [ ] Implement integrated pathway visualization
+- [ ] Add regulatory network plots
+- [ ] Create publication-ready heatmaps for all RNA types
+
+### Phase 5: Enhanced Workflow Management
+**Priority**: MEDIUM
+**Timeline**: Week 5-7
+
+#### 5.1 Advanced Snakemake Workflow
+- [ ] Expand Snakefile for multi-modal analysis
+- [ ] Implement parallel execution of RNA-seq branches
+- [ ] Add dynamic resource allocation for memory-intensive steps
+- [ ] Create workflow checkpoints for long-running analyses
+
+#### 5.2 Configuration Management
+- [ ] Create comprehensive config.yaml for all modules
+- [ ] Implement sample metadata management for tumor-normal pairs
+- [ ] Add tool-specific parameter configuration
+- [ ] Create validation framework for input data
+
+#### 5.3 Enhanced Bash Pipeline
+- [ ] Expand run_analysis.sh for complete multi-modal workflow
+- [ ] Add error handling for complex multi-step processes
+- [ ] Implement progress tracking across multiple analysis arms
+- [ ] Create modular execution options
+
+### Phase 6: Functional Analysis Integration
+**Priority**: MEDIUM
+**Timeline**: Week 6-8
+
+#### 6.1 Pathway and Network Analysis
+- [ ] Implement GO/KEGG enrichment for affected gene sets
+- [ ] Add protein-protein interaction network analysis
+- [ ] Create regulatory cascade visualization
+- [ ] Implement pathway impact scoring
+
+#### 6.2 Cancer-Specific Analysis Features
+- [ ] Add oncogene/tumor suppressor classification
+- [ ] Implement cancer hallmark pathway analysis
+- [ ] Create mutation signature analysis
+- [ ] Add drug target prioritization
+
+#### 6.3 Target Prediction and Validation
+- [ ] Integrate miRNA target prediction databases
+- [ ] Add lncRNA-protein interaction prediction
+- [ ] Implement regulatory validation scoring
+- [ ] Create therapeutic target ranking
+
+### Phase 7: Quality Control and Validation
+**Priority**: MEDIUM
+**Timeline**: Week 7-8
+
+#### 7.1 Enhanced QC Framework
+- [ ] Expand MultiQC for variant calling metrics
+- [ ] Add small RNA-seq specific QC metrics
+- [ ] Implement cross-modal validation checks
+- [ ] Create comprehensive analysis reports
+
+#### 7.2 Validation and Testing
+- [ ] Create comprehensive test dataset with all RNA types
+- [ ] Implement validation against known cancer datasets
+- [ ] Add performance benchmarking for large cohorts
+- [ ] Create accuracy validation framework
+
+#### 7.3 Documentation and Training
+- [ ] Create comprehensive user guide for multi-modal analysis
+- [ ] Add interpretation guidelines for integrated results
+- [ ] Create tutorial for cancer genomics applications
+- [ ] Implement example workflows
+
+### Phase 8: Advanced Features and Optimization
+**Priority**: LOW
+**Timeline**: Week 8+
+
+#### 8.1 Performance Optimization
+- [ ] Implement cluster computing optimization
+- [ ] Add cloud deployment for large-scale analysis
+- [ ] Create memory optimization for variant calling
+- [ ] Implement parallel processing optimization
+
+#### 8.2 Advanced Analytics
+- [ ] Add machine learning for pattern recognition
+- [ ] Implement survival analysis integration
+- [ ] Create prognostic signature development
+- [ ] Add drug response prediction
+
+#### 8.3 Integration Features
+- [ ] Create API for external tool integration
+- [ ] Add database connectivity for public datasets
+- [ ] Implement real-time analysis monitoring
+- [ ] Create result sharing and collaboration features
+
+## Technical Requirements - Expanded
+
+### Computational Resources
+- **CPU**: 16+ cores recommended (GATK and variant calling intensive)
+- **RAM**: 64+ GB recommended (STAR 2-pass + GATK BQSR)
+- **Storage**: 1TB+ for reference data and intermediate files
+- **GPU**: Optional for machine learning components
+
+### Software Dependencies - New Additions
+#### Variant Calling Stack
+- **GATK4**: 4.2.6.1+ for RNA-seq variant calling
+- **Picard Tools**: 2.27.5+ for BAM processing
+- **VCFtools**: VCF manipulation and filtering
+- **bcftools**: VCF processing and annotation
+
+#### Small RNA Analysis
+- **miRDeep2**: 2.0.1.3+ for miRNA discovery and quantification
+- **ViennaRNA**: RNA secondary structure prediction
+- **Bowtie**: Short read alignment for small RNAs
+- **cutadapt**: Enhanced adapter trimming
+
+#### Advanced R Packages
+- **vcfR**: VCF file processing in R
+- **VariantAnnotation**: Bioconductor variant analysis
+- **EnhancedVolcano**: Advanced volcano plot generation
+- **clusterProfiler**: Enhanced pathway analysis
+- **enrichplot**: Advanced enrichment visualization
+
+### Data Requirements - Expanded
+#### Input Data Types
+- **Total RNA-seq**: Paired-end FASTQ files (100-150bp)
+- **Small RNA-seq**: Single-end FASTQ files (50bp)
+- **Sample Metadata**: Tumor-normal pairing information
+- **Clinical Data**: Optional for survival analysis
+
+#### Reference Databases
+- **GENCODE v41**: Comprehensive gene annotation with lncRNAs
+- **dbSNP v155**: Known variants for BQSR
+- **COSMIC v96**: Cancer mutation database
+- **miRBase v22.1**: miRNA reference sequences
+- **TargetScan**: miRNA target predictions
+
+## Expected Outputs - Comprehensive
+
+### Primary Analysis Results
+1. **Multi-Modal Count Matrices**
+   - mRNA expression matrix
+   - lncRNA expression matrix
+   - miRNA expression matrix
+
+2. **Variant Call Files**
+   - Filtered somatic variants (VCF)
+   - Annotated cancer mutations
+   - Variant impact predictions
+
+3. **Integrated Analysis**
+   - Master protein-centric summary table
+   - Regulatory network reconstruction
+   - Multi-layer pathway analysis
+
+### Visualization Suite
+1. **Expression Analysis**
+   - Multi-modal volcano plots
+   - Integrated expression heatmaps
+   - Principal component analysis
+
+2. **Variant Analysis**
+   - Mutation landscape plots
+   - Variant impact visualization
+   - Cancer hallmark analysis
+
+3. **Network Analysis**
+   - Regulatory cascade plots
+   - Target prediction networks
+   - Pathway enrichment visualizations
+
+### Reports and Summaries
+1. **Technical Reports**
+   - Comprehensive QC summary
+   - Pipeline execution metrics
+   - Cross-modal validation results
+
+2. **Biological Interpretation**
+   - Affected gene prioritization
+   - Therapeutic target ranking
+   - Pathway impact assessment
+
+## Success Metrics
+
+### Technical Validation
+- [ ] Complete pipeline execution on test cancer dataset
+- [ ] Cross-validation with published cancer studies
+- [ ] Performance benchmarking on large cohorts
+- [ ] Reproducibility validation across platforms
+
+### Biological Validation
+- [ ] Identification of known cancer drivers
+- [ ] Discovery of novel regulatory relationships
+- [ ] Validation of predicted therapeutic targets
+- [ ] Pathway analysis consistency with cancer biology
+
+### Usability Assessment
+- [ ] User-friendly execution workflows
+- [ ] Comprehensive documentation and tutorials
+- [ ] Community adoption and feedback
+- [ ] Publication-ready output quality
+
+## Implementation Priority Matrix
+
+### CRITICAL (Immediate - Week 1-2)
+1. Enhanced environment setup
+2. GATK integration
+3. Multi-modal directory structure
+4. Reference database configuration
+
+### HIGH (Core Development - Week 2-5)
+1. STAR 2-pass implementation
+2. Somatic variant calling pipeline
+3. miRNA analysis module
+4. Integrated R analysis script
+
+### MEDIUM (Enhancement - Week 5-8)
+1. Advanced workflow management
+2. Comprehensive visualization
+3. Quality control expansion
+4. Documentation completion
+
+### LOW (Future Development - Week 8+)
+1. Performance optimization
+2. Machine learning integration
+3. Cloud deployment
+4. Advanced analytics
+
+## Risk Assessment and Mitigation
+
+### Technical Risks
+- **Memory Requirements**: GATK BQSR very memory intensive
+  - *Mitigation*: Implement chromosome-based processing
+- **Compute Time**: Multi-modal analysis significantly longer
+  - *Mitigation*: Optimize parallel execution and checkpointing
+- **Data Complexity**: Integration of multiple data types
+  - *Mitigation*: Robust validation and QC frameworks
+
+### Scientific Risks
+- **False Discovery**: Multi-modal analysis increases multiple testing
+  - *Mitigation*: Stringent statistical correction methods
+- **Integration Complexity**: Combining heterogeneous data types
+  - *Mitigation*: Established bioinformatics protocols and validation
+
+## Resource Allocation
+
+### Development Time: ~8-12 weeks
+- **Phase 1-2**: Core infrastructure (4 weeks)
+- **Phase 3-4**: Specialized modules (4 weeks)
+- **Phase 5-6**: Integration and analysis (3 weeks)
+- **Phase 7-8**: Validation and optimization (1-3 weeks)
+
+### Testing and Validation: ~2-4 weeks
+- Comprehensive testing on cancer datasets
+- Cross-validation with published results
+- Performance optimization
+- Documentation finalization
+
+---
+
+**This expansion transforms the basic RNA-seq pipeline into a comprehensive cancer genomics analysis platform, enabling researchers to investigate the complex interplay between mutations, gene expression, and regulatory networks in cancer biology.**

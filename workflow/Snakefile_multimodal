@@ -1,0 +1,759 @@
+# ==============================================================================
+# Multi-Modal Cancer Genomics Snakemake Workflow
+#
+# Comprehensive workflow integrating:
+# - mRNA-seq differential expression analysis
+# - Somatic variant discovery with GATK/Mutect2
+# - Small RNA-seq and miRNA analysis
+# - Multi-modal data integration and visualization
+#
+# This workflow follows GATK best practices and implements state-of-the-art
+# methods for cancer genomics analysis.
+# ==============================================================================
+
+import pandas as pd
+import os
+from pathlib import Path
+
+# === CONFIGURATION ===
+configfile: "config/config_multimodal.yaml"
+
+# Load samples
+SAMPLES_FILE = config.get("samples_file", "config/samples.tsv")
+if os.path.exists(SAMPLES_FILE):
+    samples_df = pd.read_csv(SAMPLES_FILE, sep='\t')
+    SAMPLES = samples_df['sample_id'].tolist()
+else:
+    SAMPLES = ["sample1", "sample2", "sample3"]  # Default samples
+
+# Separate tumor and normal samples
+TUMOR_SAMPLES = [s for s in SAMPLES if not (s.endswith('_N') or 'normal' in s.lower())]
+NORMAL_SAMPLES = [s for s in SAMPLES if s.endswith('_N') or 'normal' in s.lower()]
+
+# === GLOBAL PARAMETERS ===
+THREADS = config.get("threads", 8)
+MEMORY_GB = config.get("memory_gb", 32)
+READ_LENGTH = config.get("read_length", 100)
+
+# Reference files
+REF_DIR = config.get("ref_dir", "01_references")
+GENOME_FASTA = f"{REF_DIR}/GRCh38.primary_assembly.genome.fa"
+GENOME_GTF = f"{REF_DIR}/gencode.v41.primary_assembly.annotation.gtf"
+DBSNP_VCF = f"{REF_DIR}/databases/dbsnp_155.hg38.vcf.gz"
+
+# === TARGET RULES ===
+
+rule all:
+    input:
+        # Quality control
+        "reports/multiqc_report.html",
+
+        # mRNA-seq analysis
+        expand("04_aligned_lncrna/{sample}_2pass_Aligned.sortedByCoord.out.bam", sample=SAMPLES),
+        expand("06_variants/{sample}.bqsr.bam", sample=SAMPLES),
+        "05_quantification/deseq2_results.csv",
+
+        # Variant calling
+        expand("06_variants/{sample}_somatic_pass.vcf.gz", sample=TUMOR_SAMPLES),
+        "06_variants/somatic_variant_summary.txt",
+
+        # Small RNA analysis
+        expand("08_small_rna/mirdeep2/{sample}_results", sample=SAMPLES),
+        "08_small_rna/differential_mirnas.csv",
+
+        # Multi-modal integration
+        "09_multimodal/tables/summary_statistics.csv",
+        "09_multimodal/plots/multimodal_overview.png",
+
+        # Final reports
+        "reports/multimodal_analysis_report.html"
+
+# === QUALITY CONTROL ===
+
+rule fastqc_raw:
+    input:
+        "02_raw_data/{sample}_R1.fastq.gz",
+        "02_raw_data/{sample}_R2.fastq.gz"
+    output:
+        "reports/fastqc_raw/{sample}_R1_fastqc.html",
+        "reports/fastqc_raw/{sample}_R2_fastqc.html"
+    conda:
+        "envs/rnaseq_analysis.yaml"
+    threads: 2
+    shell:
+        """
+        mkdir -p reports/fastqc_raw
+        fastqc -o reports/fastqc_raw -t {threads} {input}
+        """
+
+rule fastp_trimming:
+    input:
+        r1="02_raw_data/{sample}_R1.fastq.gz",
+        r2="02_raw_data/{sample}_R2.fastq.gz"
+    output:
+        r1="03_trimmed/{sample}_R1.paired.fastq.gz",
+        r2="03_trimmed/{sample}_R2.paired.fastq.gz",
+        html="reports/fastp/{sample}_fastp.html",
+        json="reports/fastp/{sample}_fastp.json"
+    conda:
+        "envs/rnaseq_analysis.yaml"
+    threads: THREADS
+    shell:
+        """
+        mkdir -p 03_trimmed reports/fastp
+        fastp -i {input.r1} -I {input.r2} -o {output.r1} -O {output.r2} \
+            --thread {threads} \
+            --html {output.html} \
+            --json {output.json} \
+            --detect_adapter_for_pe \
+            --cut_front \
+            --cut_tail \
+            --cut_window_size 4 \
+            --cut_mean_quality 20 \
+            --qualified_quality_phred 20 \
+            --unqualified_percent_limit 40 \
+            --n_base_limit 5 \
+            --length_required 50
+        """
+
+# === STAR 2-PASS ALIGNMENT ===
+
+rule star_index_1pass:
+    input:
+        fasta=GENOME_FASTA,
+        gtf=GENOME_GTF
+    output:
+        directory(f"{REF_DIR}/star_index_1pass")
+    conda:
+        "envs/rnaseq_analysis.yaml"
+    threads: THREADS
+    params:
+        memory_bytes=MEMORY_GB * 1000000000,
+        sjdb_overhang=READ_LENGTH - 1
+    shell:
+        """
+        mkdir -p {output}
+        STAR --runMode genomeGenerate \
+            --genomeDir {output} \
+            --genomeFastaFiles {input.fasta} \
+            --sjdbGTFfile {input.gtf} \
+            --sjdbOverhang {params.sjdb_overhang} \
+            --runThreadN {threads} \
+            --limitGenomeGenerateRAM {params.memory_bytes}
+        """
+
+rule star_1pass_alignment:
+    input:
+        r1="03_trimmed/{sample}_R1.paired.fastq.gz",
+        r2="03_trimmed/{sample}_R2.paired.fastq.gz",
+        index=f"{REF_DIR}/star_index_1pass"
+    output:
+        "04_aligned_lncrna/{sample}_1pass_SJ.out.tab"
+    conda:
+        "envs/rnaseq_analysis.yaml"
+    threads: THREADS
+    params:
+        memory_bytes=MEMORY_GB * 1000000000,
+        prefix="04_aligned_lncrna/{sample}_1pass_"
+    shell:
+        """
+        mkdir -p 04_aligned_lncrna
+        STAR --runMode alignReads \
+            --genomeDir {input.index} \
+            --readFilesIn {input.r1} {input.r2} \
+            --readFilesCommand zcat \
+            --outFileNamePrefix {params.prefix} \
+            --outSAMtype None \
+            --runThreadN {threads} \
+            --limitBAMsortRAM {params.memory_bytes}
+        """
+
+rule collect_splice_junctions:
+    input:
+        expand("04_aligned_lncrna/{sample}_1pass_SJ.out.tab", sample=SAMPLES)
+    output:
+        directory("04_aligned_lncrna/filtered_sj")
+    shell:
+        """
+        mkdir -p {output}
+        for sj_file in {input}; do
+            basename=$(basename "$sj_file" .tab)
+            filtered_file="{output}/${{basename}}_filtered.tab"
+            awk '$7 >= 3 && $6 != 0' "$sj_file" > "$filtered_file"
+        done
+        """
+
+rule star_index_2pass:
+    input:
+        fasta=GENOME_FASTA,
+        sj_dir="04_aligned_lncrna/filtered_sj"
+    output:
+        directory(f"{REF_DIR}/star_index_2pass")
+    conda:
+        "envs/rnaseq_analysis.yaml"
+    threads: THREADS
+    params:
+        memory_bytes=MEMORY_GB * 1000000000,
+        sjdb_overhang=READ_LENGTH - 1
+    shell:
+        """
+        mkdir -p {output}
+        sj_files=($(find {input.sj_dir} -name "*_filtered.tab"))
+        STAR --runMode genomeGenerate \
+            --genomeDir {output} \
+            --genomeFastaFiles {input.fasta} \
+            --sjdbFileChrStartEnd "${{sj_files[@]}}" \
+            --sjdbOverhang {params.sjdb_overhang} \
+            --runThreadN {threads} \
+            --limitGenomeGenerateRAM {params.memory_bytes} \
+            --limitSjdbInsertNsj 2000000
+        """
+
+rule star_2pass_alignment:
+    input:
+        r1="03_trimmed/{sample}_R1.paired.fastq.gz",
+        r2="03_trimmed/{sample}_R2.paired.fastq.gz",
+        index=f"{REF_DIR}/star_index_2pass"
+    output:
+        bam="04_aligned_lncrna/{sample}_2pass_Aligned.sortedByCoord.out.bam",
+        bai="04_aligned_lncrna/{sample}_2pass_Aligned.sortedByCoord.out.bam.bai"
+    conda:
+        "envs/rnaseq_analysis.yaml"
+    threads: THREADS
+    params:
+        memory_bytes=MEMORY_GB * 1000000000,
+        prefix="04_aligned_lncrna/{sample}_2pass_"
+    shell:
+        """
+        STAR --runMode alignReads \
+            --genomeDir {input.index} \
+            --readFilesIn {input.r1} {input.r2} \
+            --readFilesCommand zcat \
+            --outFileNamePrefix {params.prefix} \
+            --outSAMtype BAM SortedByCoordinate \
+            --outSAMunmapped Within \
+            --outSAMattributes Standard \
+            --outFilterType BySJout \
+            --outFilterMultimapNmax 20 \
+            --alignSJoverhangMin 8 \
+            --alignSJDBoverhangMin 1 \
+            --outFilterMismatchNmax 999 \
+            --outFilterMismatchNoverReadLmax 0.04 \
+            --alignIntronMin 20 \
+            --alignIntronMax 1000000 \
+            --alignMatesGapMax 1000000 \
+            --runThreadN {threads} \
+            --limitBAMsortRAM {params.memory_bytes} \
+            --quantMode TranscriptomeSAM GeneCounts
+
+        samtools index {output.bam}
+        """
+
+# === GATK BAM PROCESSING ===
+
+rule add_read_groups:
+    input:
+        "04_aligned_lncrna/{sample}_2pass_Aligned.sortedByCoord.out.bam"
+    output:
+        "06_variants/{sample}.rg.bam"
+    conda:
+        "envs/gatk_analysis.yaml"
+    params:
+        memory=f"{MEMORY_GB}g"
+    shell:
+        """
+        mkdir -p 06_variants
+        gatk --java-options "-Xmx{params.memory}" AddOrReplaceReadGroups \
+            --INPUT {input} \
+            --OUTPUT {output} \
+            --RGID rg_{wildcards.sample} \
+            --RGLB lib_{wildcards.sample} \
+            --RGPL ILLUMINA \
+            --RGPU unit_{wildcards.sample} \
+            --RGSM {wildcards.sample} \
+            --CREATE_INDEX true \
+            --SORT_ORDER coordinate \
+            --VALIDATION_STRINGENCY LENIENT
+        """
+
+rule mark_duplicates:
+    input:
+        "06_variants/{sample}.rg.bam"
+    output:
+        bam="06_variants/{sample}.dedup.bam",
+        metrics="06_variants/{sample}.dedup_metrics.txt"
+    conda:
+        "envs/gatk_analysis.yaml"
+    params:
+        memory=f"{MEMORY_GB}g"
+    shell:
+        """
+        gatk --java-options "-Xmx{params.memory}" MarkDuplicates \
+            --INPUT {input} \
+            --OUTPUT {output.bam} \
+            --METRICS_FILE {output.metrics} \
+            --CREATE_INDEX true \
+            --VALIDATION_STRINGENCY LENIENT \
+            --OPTICAL_DUPLICATE_PIXEL_DISTANCE 2500 \
+            --ASSUME_SORT_ORDER coordinate
+        """
+
+rule split_n_cigar_reads:
+    input:
+        bam="06_variants/{sample}.dedup.bam",
+        ref=GENOME_FASTA
+    output:
+        "06_variants/{sample}.split.bam"
+    conda:
+        "envs/gatk_analysis.yaml"
+    params:
+        memory=f"{MEMORY_GB}g"
+    shell:
+        """
+        gatk --java-options "-Xmx{params.memory}" SplitNCigarReads \
+            --reference {input.ref} \
+            --input {input.bam} \
+            --output {output} \
+            --create-output-bam-index true \
+            --refactor-NDN-cigar-string \
+            --skip-mapping-quality-transform
+        """
+
+rule base_recalibrator:
+    input:
+        bam="06_variants/{sample}.split.bam",
+        ref=GENOME_FASTA,
+        dbsnp=DBSNP_VCF
+    output:
+        "06_variants/{sample}.recal_data.table"
+    conda:
+        "envs/gatk_analysis.yaml"
+    params:
+        memory=f"{MEMORY_GB}g"
+    shell:
+        """
+        mkdir -p 06_variants/tmp
+        gatk --java-options "-Xmx{params.memory}" BaseRecalibrator \
+            --reference {input.ref} \
+            --input {input.bam} \
+            --known-sites {input.dbsnp} \
+            --output {output} \
+            --tmp-dir 06_variants/tmp
+        """
+
+rule apply_bqsr:
+    input:
+        bam="06_variants/{sample}.split.bam",
+        ref=GENOME_FASTA,
+        recal_table="06_variants/{sample}.recal_data.table"
+    output:
+        bam="06_variants/{sample}.bqsr.bam",
+        bai="06_variants/{sample}.bqsr.bam.bai"
+    conda:
+        "envs/gatk_analysis.yaml"
+    params:
+        memory=f"{MEMORY_GB}g"
+    shell:
+        """
+        gatk --java-options "-Xmx{params.memory}" ApplyBQSR \
+            --reference {input.ref} \
+            --input {input.bam} \
+            --bqsr-recal-file {input.recal_table} \
+            --output {output.bam} \
+            --create-output-bam-index true \
+            --tmp-dir 06_variants/tmp
+        """
+
+# === SOMATIC VARIANT CALLING ===
+
+rule create_panel_of_normals:
+    input:
+        expand("06_variants/{sample}.bqsr.bam", sample=NORMAL_SAMPLES),
+        ref=GENOME_FASTA,
+        dbsnp=DBSNP_VCF
+    output:
+        "06_variants/panel_of_normals.vcf.gz"
+    conda:
+        "envs/gatk_analysis.yaml"
+    params:
+        memory=f"{MEMORY_GB}g"
+    shell:
+        """
+        # Run Mutect2 on normal samples first
+        normal_vcfs=""
+        for normal in {NORMAL_SAMPLES}; do
+            if [[ -f "06_variants/${{normal}}.bqsr.bam" ]]; then
+                gatk --java-options "-Xmx{params.memory}" Mutect2 \
+                    --reference {input.ref} \
+                    --input "06_variants/${{normal}}.bqsr.bam" \
+                    --output "06_variants/${{normal}}_normal.vcf.gz" \
+                    --max-mnp-distance 0 \
+                    --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter
+                normal_vcfs="$normal_vcfs --vcfs 06_variants/${{normal}}_normal.vcf.gz"
+            fi
+        done
+
+        # Create panel of normals
+        if [[ -n "$normal_vcfs" ]]; then
+            gatk --java-options "-Xmx{params.memory}" CreateSomaticPanelOfNormals \
+                $normal_vcfs \
+                --germline-resource {input.dbsnp} \
+                --output {output} \
+                --min-sample-count 2
+        else
+            # Create minimal PON if no normals
+            gatk --java-options "-Xmx{params.memory}" CreateSomaticPanelOfNormals \
+                --germline-resource {input.dbsnp} \
+                --output {output} \
+                --min-sample-count 1
+        fi
+        """
+
+rule mutect2_calling:
+    input:
+        tumor_bam="06_variants/{tumor_sample}.bqsr.bam",
+        ref=GENOME_FASTA,
+        dbsnp=DBSNP_VCF,
+        pon="06_variants/panel_of_normals.vcf.gz"
+    output:
+        vcf="06_variants/{tumor_sample}_somatic_raw.vcf.gz",
+        stats="06_variants/{tumor_sample}_somatic.vcf.stats",
+        f1r2="06_variants/{tumor_sample}_f1r2.tar.gz"
+    conda:
+        "envs/gatk_analysis.yaml"
+    params:
+        memory=f"{MEMORY_GB}g"
+    threads: THREADS
+    shell:
+        """
+        gatk --java-options "-Xmx{params.memory}" Mutect2 \
+            --reference {input.ref} \
+            --input {input.tumor_bam} \
+            --tumor-sample {wildcards.tumor_sample} \
+            --output {output.vcf} \
+            --stats {output.stats} \
+            --f1r2-tar-gz {output.f1r2} \
+            --germline-resource {input.dbsnp} \
+            --panel-of-normals {input.pon} \
+            --disable-read-filter MateOnSameContigOrNoMappedMateReadFilter \
+            --native-pair-hmm-threads {threads} \
+            --max-reads-per-alignment-start 0 \
+            --dont-use-soft-clipped-bases
+        """
+
+rule learn_read_orientation:
+    input:
+        "06_variants/{tumor_sample}_f1r2.tar.gz"
+    output:
+        "06_variants/{tumor_sample}_read_orientation_model.tar.gz"
+    conda:
+        "envs/gatk_analysis.yaml"
+    params:
+        memory=f"{MEMORY_GB}g"
+    shell:
+        """
+        gatk --java-options "-Xmx{params.memory}" LearnReadOrientationModel \
+            --input {input} \
+            --output {output}
+        """
+
+rule get_pileup_summaries:
+    input:
+        bam="06_variants/{sample}.bqsr.bam",
+        dbsnp=DBSNP_VCF
+    output:
+        "06_variants/{sample}_getpileupsummaries.table"
+    conda:
+        "envs/gatk_analysis.yaml"
+    params:
+        memory=f"{MEMORY_GB}g"
+    shell:
+        """
+        gatk --java-options "-Xmx{params.memory}" GetPileupSummaries \
+            --input {input.bam} \
+            --variant {input.dbsnp} \
+            --intervals {input.dbsnp} \
+            --output {output}
+        """
+
+rule calculate_contamination:
+    input:
+        tumor_pileup="06_variants/{tumor_sample}_getpileupsummaries.table"
+    output:
+        contamination="06_variants/{tumor_sample}_contamination.table",
+        segments="06_variants/{tumor_sample}_segments.table"
+    conda:
+        "envs/gatk_analysis.yaml"
+    params:
+        memory=f"{MEMORY_GB}g"
+    shell:
+        """
+        gatk --java-options "-Xmx{params.memory}" CalculateContamination \
+            --input {input.tumor_pileup} \
+            --output {output.contamination} \
+            --tumor-segmentation {output.segments}
+        """
+
+rule filter_mutect_calls:
+    input:
+        vcf="06_variants/{tumor_sample}_somatic_raw.vcf.gz",
+        ref=GENOME_FASTA,
+        stats="06_variants/{tumor_sample}_somatic.vcf.stats",
+        contamination="06_variants/{tumor_sample}_contamination.table",
+        segments="06_variants/{tumor_sample}_segments.table",
+        orientation="06_variants/{tumor_sample}_read_orientation_model.tar.gz"
+    output:
+        "06_variants/{tumor_sample}_somatic_filtered.vcf.gz"
+    conda:
+        "envs/gatk_analysis.yaml"
+    params:
+        memory=f"{MEMORY_GB}g"
+    shell:
+        """
+        gatk --java-options "-Xmx{params.memory}" FilterMutectCalls \
+            --reference {input.ref} \
+            --variant {input.vcf} \
+            --output {output} \
+            --stats {input.stats} \
+            --contamination-table {input.contamination} \
+            --tumor-segmentation {input.segments} \
+            --orientation-bias-artifact-priors {input.orientation} \
+            --max-alt-allele-count 1 \
+            --min-reads-per-strand 0
+        """
+
+rule select_pass_variants:
+    input:
+        vcf="06_variants/{tumor_sample}_somatic_filtered.vcf.gz",
+        ref=GENOME_FASTA
+    output:
+        "06_variants/{tumor_sample}_somatic_pass.vcf.gz"
+    conda:
+        "envs/gatk_analysis.yaml"
+    params:
+        memory=f"{MEMORY_GB}g"
+    shell:
+        """
+        gatk --java-options "-Xmx{params.memory}" SelectVariants \
+            --reference {input.ref} \
+            --variant {input.vcf} \
+            --output {output} \
+            --exclude-filtered
+        """
+
+rule variant_summary:
+    input:
+        expand("06_variants/{tumor_sample}_somatic_pass.vcf.gz", tumor_sample=TUMOR_SAMPLES)
+    output:
+        "06_variants/somatic_variant_summary.txt"
+    shell:
+        """
+        echo -e "Sample\\tRaw_Variants\\tFiltered_Variants\\tPASS_Variants\\tSNVs\\tIndels" > {output}
+        for tumor in {TUMOR_SAMPLES}; do
+            if [[ -f "06_variants/${{tumor}}_somatic_pass.vcf.gz" ]]; then
+                pass_count=$(zcat "06_variants/${{tumor}}_somatic_pass.vcf.gz" | grep -v "^#" | wc -l)
+                snv_count=$(zcat "06_variants/${{tumor}}_somatic_pass.vcf.gz" | grep -v "^#" | awk '{{if(length($4)==1 && length($5)==1) print}}' | wc -l)
+                indel_count=$(zcat "06_variants/${{tumor}}_somatic_pass.vcf.gz" | grep -v "^#" | awk '{{if(length($4)!=1 || length($5)!=1) print}}' | wc -l)
+                echo -e "${{tumor}}\\tN/A\\tN/A\\t${{pass_count}}\\t${{snv_count}}\\t${{indel_count}}" >> {output}
+            fi
+        done
+        """
+
+# === GENE QUANTIFICATION ===
+
+rule salmon_index:
+    input:
+        GENOME_FASTA
+    output:
+        directory("01_references/salmon_index")
+    conda:
+        "envs/rnaseq_analysis.yaml"
+    threads: THREADS
+    shell:
+        """
+        # Create transcriptome FASTA from GTF
+        gffread -w 01_references/transcriptome.fa -g {input} {GENOME_GTF}
+
+        # Build Salmon index
+        salmon index -t 01_references/transcriptome.fa -i {output} -k 31 -p {threads}
+        """
+
+rule salmon_quantification:
+    input:
+        r1="03_trimmed/{sample}_R1.paired.fastq.gz",
+        r2="03_trimmed/{sample}_R2.paired.fastq.gz",
+        index="01_references/salmon_index"
+    output:
+        "05_quantification/{sample}/quant.sf"
+    conda:
+        "envs/rnaseq_analysis.yaml"
+    threads: THREADS
+    shell:
+        """
+        mkdir -p 05_quantification/{wildcards.sample}
+        salmon quant -i {input.index} -l A \
+            -1 {input.r1} -2 {input.r2} \
+            -o 05_quantification/{wildcards.sample} \
+            -p {threads} --validateMappings
+        """
+
+rule deseq2_analysis:
+    input:
+        expand("05_quantification/{sample}/quant.sf", sample=SAMPLES)
+    output:
+        results="05_quantification/deseq2_results.csv",
+        dds="05_quantification/dds_object.rds"
+    conda:
+        "envs/multimodal_analysis.yaml"
+    shell:
+        """
+        Rscript scripts/interpret_results.R
+        """
+
+# === SMALL RNA ANALYSIS ===
+
+rule small_rna_trimming:
+    input:
+        "02_raw_data/{sample}_R1.fastq.gz"
+    output:
+        "03_trimmed_smallrna/{sample}_trimmed.fastq.gz"
+    conda:
+        "envs/small_rna.yaml"
+    threads: THREADS
+    shell:
+        """
+        mkdir -p 03_trimmed_smallrna
+        cutadapt \
+            --adapter=AGATCGGAAGAGCACACGTCT \
+            --minimum-length=18 \
+            --maximum-length=25 \
+            --quality-cutoff=20 \
+            --cores={threads} \
+            --output={output} \
+            {input}
+        """
+
+rule mirdeep2_analysis:
+    input:
+        "03_trimmed_smallrna/{sample}_trimmed.fastq.gz"
+    output:
+        directory("08_small_rna/mirdeep2/{sample}_results")
+    conda:
+        "envs/small_rna.yaml"
+    shell:
+        """
+        mkdir -p 08_small_rna/mirdeep2
+        bash scripts/small_rna_analysis.sh --sample {wildcards.sample}
+        """
+
+rule mirna_differential_expression:
+    input:
+        expand("08_small_rna/mirdeep2/{sample}_results", sample=SAMPLES)
+    output:
+        "08_small_rna/differential_mirnas.csv"
+    conda:
+        "envs/small_rna.yaml"
+    shell:
+        """
+        cd 08_small_rna
+        Rscript ../scripts/small_rna_analysis.sh
+        """
+
+# === MULTI-MODAL INTEGRATION ===
+
+rule multimodal_integration:
+    input:
+        mrna_results="05_quantification/deseq2_results.csv",
+        variant_summary="06_variants/somatic_variant_summary.txt",
+        mirna_results="08_small_rna/differential_mirnas.csv"
+    output:
+        summary="09_multimodal/tables/summary_statistics.csv",
+        overview_plot="09_multimodal/plots/multimodal_overview.png"
+    conda:
+        "envs/multimodal_analysis.yaml"
+    shell:
+        """
+        Rscript scripts/multimodal_integration.R
+        """
+
+# === QUALITY CONTROL REPORTS ===
+
+rule multiqc:
+    input:
+        expand("reports/fastqc_raw/{sample}_R1_fastqc.html", sample=SAMPLES),
+        expand("reports/fastp/{sample}_fastp.html", sample=SAMPLES),
+        expand("04_aligned_lncrna/{sample}_2pass_Log.final.out", sample=SAMPLES)
+    output:
+        "reports/multiqc_report.html"
+    conda:
+        "envs/rnaseq_analysis.yaml"
+    shell:
+        """
+        multiqc -o reports \
+            reports/fastqc_raw \
+            reports/fastp \
+            04_aligned_lncrna \
+            05_quantification \
+            06_variants \
+            08_small_rna \
+            --title "Multi-Modal Cancer Genomics Analysis"
+        """
+
+rule final_report:
+    input:
+        multiqc="reports/multiqc_report.html",
+        multimodal="09_multimodal/tables/summary_statistics.csv"
+    output:
+        "reports/multimodal_analysis_report.html"
+    conda:
+        "envs/multimodal_analysis.yaml"
+    shell:
+        """
+        # Generate comprehensive HTML report
+        cat > reports/multimodal_analysis_report.html << 'EOF'
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Multi-Modal Cancer Genomics Analysis Report</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; }
+        .header { background-color: #f5f5f5; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Multi-Modal Cancer Genomics Analysis Report</h1>
+    <div class="section header">
+        <h2>Analysis Overview</h2>
+        <p>Comprehensive multi-modal analysis integrating mRNA expression, somatic variants, and miRNA data.</p>
+    </div>
+    <div class="section">
+        <h3>Quality Control</h3>
+        <p><a href="multiqc_report.html">MultiQC Quality Control Report</a></p>
+    </div>
+    <div class="section">
+        <h3>Results Summary</h3>
+        <p>Results available in the following directories:</p>
+        <ul>
+            <li>mRNA Expression: 05_quantification/</li>
+            <li>Somatic Variants: 06_variants/</li>
+            <li>Small RNA/miRNA: 08_small_rna/</li>
+            <li>Multi-modal Integration: 09_multimodal/</li>
+        </ul>
+    </div>
+</body>
+</html>
+EOF
+        """
+
+# === CLEANUP RULES ===
+
+rule cleanup_intermediate:
+    shell:
+        """
+        # Remove intermediate BAM files but keep final results
+        find 06_variants -name "*.rg.bam*" -delete
+        find 06_variants -name "*.dedup.bam*" -delete
+        find 06_variants -name "*.split.bam*" -delete
+        rm -rf 06_variants/tmp
+        """

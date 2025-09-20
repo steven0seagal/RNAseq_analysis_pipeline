@@ -1,0 +1,144 @@
+# ==============================================================================
+# Multi-Modal Cancer Genomics Analysis Configuration
+#
+# Configuration file for the comprehensive cancer genomics pipeline
+# integrating mRNA-seq, variant calling, and small RNA analysis
+# ==============================================================================
+
+# === SAMPLE CONFIGURATION ===
+samples_file: "config/samples.tsv"
+
+# === RESOURCE CONFIGURATION ===
+threads: 8
+memory_gb: 32
+read_length: 100
+
+# === REFERENCE FILES ===
+ref_dir: "01_references"
+genome_fasta: "01_references/GRCh38.primary_assembly.genome.fa"
+genome_gtf: "01_references/gencode.v41.primary_assembly.annotation.gtf"
+dbsnp_vcf: "01_references/databases/dbsnp_155.hg38.vcf.gz"
+cosmic_vcf: "01_references/databases/cosmic_v96_grch38.vcf.gz"
+mirbase_mature: "01_references/human_mature.fa"
+mirbase_hairpin: "01_references/hairpin.fa"
+
+# === ANALYSIS PARAMETERS ===
+
+# Quality control and trimming
+fastp:
+  cut_front: true
+  cut_tail: true
+  cut_window_size: 4
+  cut_mean_quality: 20
+  qualified_quality_phred: 20
+  unqualified_percent_limit: 40
+  n_base_limit: 5
+  length_required: 50
+
+# STAR alignment
+star:
+  sjdb_overhang: 99  # read_length - 1
+  out_filter_multimap_nmax: 20
+  align_sjoverhang_min: 8
+  align_sjdb_overhang_min: 1
+  out_filter_mismatch_nmax: 999
+  out_filter_mismatch_nover_readlmax: 0.04
+  align_intron_min: 20
+  align_intron_max: 1000000
+  align_mates_gap_max: 1000000
+
+# GATK processing
+gatk:
+  validation_stringency: "LENIENT"
+  optical_duplicate_pixel_distance: 2500
+  min_base_quality: 20
+
+# Variant calling
+mutect2:
+  max_mnp_distance: 0
+  max_reads_per_alignment_start: 0
+  native_pair_hmm_threads: 4
+  max_alt_allele_count: 1
+  min_reads_per_strand: 0
+
+# Small RNA analysis
+small_rna:
+  adapter_sequence: "AGATCGGAAGAGCACACGTCT"
+  min_length: 18
+  max_length: 25
+  quality_cutoff: 20
+
+# Differential expression
+deseq2:
+  alpha: 0.05
+  lfc_threshold: 1.0
+  independent_filtering: true
+  cook_cutoff: true
+
+# Multi-modal integration
+integration:
+  pvalue_cutoff: 0.05
+  fc_cutoff: 1.0
+  min_variant_support: 5
+
+# === OUTPUT CONFIGURATION ===
+output:
+  plots_format: "png"
+  plots_dpi: 300
+  keep_intermediate: false
+
+# === CONDA ENVIRONMENTS ===
+envs:
+  rnaseq_analysis: "workflow/envs/rnaseq_analysis.yaml"
+  gatk_analysis: "workflow/envs/gatk_analysis.yaml"
+  small_rna: "workflow/envs/small_rna.yaml"
+  multimodal_analysis: "workflow/envs/multimodal_analysis.yaml"
+
+# === CLUSTER CONFIGURATION ===
+cluster:
+  max_jobs: 100
+  default_resources:
+    mem_mb: 8000
+    runtime: 120
+    tmpdir: "/tmp"
+
+# Resource requirements for specific rules
+resources:
+  star_index:
+    mem_mb: 40000
+    runtime: 240
+  star_alignment:
+    mem_mb: 32000
+    runtime: 360
+  gatk_bqsr:
+    mem_mb: 16000
+    runtime: 180
+  mutect2:
+    mem_mb: 16000
+    runtime: 300
+  mirdeep2:
+    mem_mb: 8000
+    runtime: 240
+
+# === ADVANCED SETTINGS ===
+
+# Checkpoint configuration
+checkpoints:
+  enable: true
+  directory: ".snakemake/checkpoints"
+
+# Logging
+logging:
+  level: "INFO"
+  file: "logs/snakemake.log"
+
+# Benchmarking
+benchmark:
+  enable: true
+  directory: "benchmarks"
+
+# Report configuration
+report:
+  template: "workflow/report.html"
+  include_plots: true
+  include_logs: false
