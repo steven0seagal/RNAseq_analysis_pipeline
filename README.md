@@ -167,48 +167,89 @@ Rscript scripts/multimodal_integration.R
 ## 🔄 Pipeline Overview
 
 ### Core Workflow
+
+```mermaid
+graph TD
+    A[Raw FASTQ Files] --> B[Quality Control<br/>FastQC]
+    B --> C[Adapter Trimming<br/>fastp]
+    C --> D[Quality Re-check<br/>FastQC]
+    D --> E[Genome Alignment<br/>STAR]
+    E --> F[Gene Quantification<br/>featureCounts]
+    F --> G[Quality Summary<br/>MultiQC]
+    G --> H[Differential Expression<br/>DESeq2/PyDESeq2]
+    H --> I[Visualization &<br/>Enrichment Analysis]
+    I --> J[Final Report]
 ```
-Raw FASTQ Files
-    ↓
-Quality Control (FastQC)
-    ↓
-Adapter Trimming (fastp)
-    ↓
-Quality Re-check (FastQC)
-    ↓
-Genome Alignment (STAR)
-    ↓
-Gene Quantification (featureCounts)
-    ↓
-Quality Summary (MultiQC)
-    ↓
-Differential Expression (DESeq2/PyDESeq2)
-    ↓
-Visualization & Enrichment Analysis
-    ↓
-Final Report
+
+### Multimodal Workflow
+
+```mermaid
+graph TD
+    A[Raw FASTQ Files] --> B[Quality Control<br/>FastQC]
+    B --> C[Adapter Trimming<br/>fastp]
+    C --> D[2-Pass STAR<br/>Alignment]
+    D --> E[BAM Processing<br/>GATK]
+    E --> F[Somatic Variant Calling<br/>MuTect2]
+    D --> G[Small RNA Analysis]
+    F --> H[Multimodal Integration<br/>R/Python]
+    G --> H
+    H --> I[Integrated Report]
 ```
 
 ### Supported Analysis Types
-- **Differential Gene Expression**: Cancer vs Healthy (3v3 design)
-- **Multimodal Analysis**: Somatic variant calling, small RNA analysis
-- **Quality Control**: Comprehensive QC reporting
-- **Functional Enrichment**: GO and KEGG pathway analysis
-- **Visualization**: PCA, volcano plots, heatmaps, custom plots
+
+```mermaid
+mindmap
+  root((RNA-seq Analysis))
+    Core Analysis
+      Differential Gene Expression
+        Cancer vs Healthy
+        Custom comparisons
+      Quality Control
+        FastQC reports
+        MultiQC summaries
+      Functional Enrichment
+        GO analysis
+        KEGG pathways
+    Multimodal Analysis
+      Somatic Variants
+        GATK processing
+        MuTect2 calling
+      Small RNA Analysis
+        Custom pipelines
+        Expression profiling
+    Visualization
+      PCA plots
+      Volcano plots
+      Heatmaps
+      Custom plots
+```
 
 ## 📁 Output Files
 
 ### Directory Structure
-```
-results/
-├── 01_fastqc_raw/          # Raw data quality reports
-├── 02_trimmed_fastq/       # Cleaned FASTQ files
-├── 03_fastqc_trimmed/      # Post-trimming quality reports
-├── 04_star_alignment/      # Alignment files (BAM)
-├── 05_featurecounts/       # Gene count matrix
-├── 06_multiqc/            # Aggregated QC report
-├── analysis_R/            # R-based analysis results
-└── analysis_python/       # Python-based analysis results
+
+```mermaid
+graph TD
+    A[results/] --> B[01_fastqc_raw/]
+    A --> C[02_trimmed_fastq/]
+    A --> D[03_fastqc_trimmed/]
+    A --> E[04_star_alignment/]
+    A --> F[05_featurecounts/]
+    A --> G[06_multiqc/]
+    A --> H[analysis_R/]
+    A --> I[analysis_python/]
+    A --> J[multimodal/]
+    
+    B --> B1[Raw data quality reports]
+    C --> C1[Cleaned FASTQ files]
+    D --> D1[Post-trimming quality reports]
+    E --> E1[Alignment files BAM]
+    F --> F1[Gene count matrix]
+    G --> G1[Aggregated QC report]
+    H --> H1[R-based analysis results]
+    I --> I1[Python-based analysis results]
+    J --> J1[Multimodal analysis results]
 ```
 
 ### Key Output Files
@@ -290,17 +331,28 @@ python validate_results.py
 ## 🏗️ Development
 
 ### Project Structure
-```
-RNAseq_analysis_pipeline/
-├── scripts/              # Main executable scripts
-├── workflow/             # Snakemake workflow files
-├── config/              # Configuration files
-├── data/                # Input data directories
-├── results/             # Output results
-├── docs/                # Documentation
-├── tests/               # Test files
-├── docker/              # Docker configuration
-└── .github/             # GitHub Actions workflows
+
+```mermaid
+graph TD
+    A[RNAseq_analysis_pipeline/] --> B[scripts/]
+    A --> C[workflow/]
+    A --> D[config/]
+    A --> E[data/]
+    A --> F[results/]
+    A --> G[docs/]
+    A --> H[tests/]
+    A --> I[docker/]
+    A --> J[.github/]
+    
+    B --> B1[Main executable scripts]
+    C --> C1[Snakemake workflow files]
+    D --> D1[Configuration files]
+    E --> E1[Input data directories]
+    F --> F1[Output results]
+    G --> G1[Documentation]
+    H --> H1[Test files]
+    I --> I1[Docker configuration]
+    J --> J1[GitHub Actions workflows]
 ```
 
 ### Testing
