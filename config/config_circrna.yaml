@@ -1,0 +1,72 @@
+# Configuration file for circRNA-seq analysis pipeline
+# Based on the comprehensive circRNA-seq analysis framework
+
+# Resource allocation
+resources:
+  threads: 8
+  memory_gb: 32
+
+# Reference files
+reference:
+  genome_fasta: "data/reference/GRCh38.primary_assembly.genome.fa"
+  annotation_gtf: "data/reference/gencode.v38.primary_assembly.annotation.gtf"
+  mirna_fasta: "data/reference/mature_mirna.fa"
+
+# Analysis parameters
+params:
+  # Adapter sequences for trimming
+  adapters:
+    fwd: "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA"  # Standard Illumina forward adapter
+    rev: "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT"  # Standard Illumina reverse adapter
+
+  # Trimming parameters
+  trimming:
+    min_len: 35
+    quality: 20
+
+  # BWA-MEM alignment parameters
+  bwa:
+    T_param: 19  # Minimum score threshold for BWA-MEM
+
+  # CIRIquant parameters
+  ciriquant:
+    threads: 8
+
+# Analysis thresholds
+analysis:
+  thresholds:
+    padj: 0.05        # Adjusted p-value cutoff
+    log2fc: 1.0       # Log2 fold change cutoff
+
+# Output directories (relative to workflow directory)
+output:
+  base_dir: "../results/circrna"
+  fastqc_raw: "01_fastqc_raw"
+  trimmed_reads: "02_trimmed_reads"
+  fastqc_trimmed: "03_fastqc_trimmed"
+  alignment: "04_alignment"
+  ciri_quant: "05_ciri_quant"
+  de_analysis: "06_de_analysis"
+  functional_annotation: "07_functional_annotation"
+
+# Quality control parameters
+qc:
+  fastqc:
+    threads: 2
+  multiqc:
+    title: "circRNA-seq Analysis Quality Control"
+
+# Functional annotation parameters
+annotation:
+  miranda:
+    energy_threshold: -20  # Minimum binding energy for miRNA predictions
+    score_threshold: 160   # Minimum alignment score
+
+  # Additional annotation tools (optional)
+  targetscan:
+    enabled: false
+
+  # ORF prediction parameters
+  orf_prediction:
+    min_orf_length: 60  # Minimum ORF length in nucleotides
+    enabled: true

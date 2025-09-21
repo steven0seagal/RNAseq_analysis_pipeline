@@ -6,7 +6,7 @@
 [![Documentation](https://img.shields.io/badge/docs-available-brightgreen.svg)](docs/)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.xxxxxx.svg)](https://doi.org/10.5281/zenodo.xxxxxx)
 
-A comprehensive, production-ready pipeline for RNA-seq differential gene expression analysis with automated interpretation and visualization.
+A comprehensive, production-ready pipeline for RNA-seq differential gene expression analysis with automated interpretation, visualization, and integrated circular RNA (circRNA) discovery.
 
 ## 🚀 Features
 
@@ -14,7 +14,8 @@ A comprehensive, production-ready pipeline for RNA-seq differential gene express
 - **Dual Implementation**: Both bash scripts and Snakemake workflows
 - **Cross-Platform Analysis**: R and Python scripts for flexibility
 - **Automated Interpretation**: Statistical analysis, visualization, and pathway enrichment
-- **Multimodal Analysis**: Support for somatic variant calling, small RNA analysis, and integrated multi-omics
+- **Multimodal Analysis**: Support for somatic variant calling, small RNA analysis, circRNA discovery, and integrated multi-omics
+- **circRNA Analysis**: Comprehensive circular RNA identification, quantification, and functional annotation
 - **Reproducible**: Conda environments and Docker containerization
 - **Scalable**: Automatic parallelization and cloud-ready
 - **Publication-Ready**: High-quality plots and comprehensive reports
@@ -62,11 +63,17 @@ conda activate rnaseq-pipeline
 cd workflow
 snakemake --use-conda --cores 8
 
-# Option 3: Multimodal analysis pipeline
+# Option 3: circRNA analysis pipeline
+./scripts/circrna_pipeline.sh
+
+# Option 4: Integrated pipeline (RNA-seq + circRNA)
+./scripts/run_integrated_pipeline.sh --mode all
+
+# Option 5: Multimodal analysis pipeline
 ./scripts/run_star_2pass.sh  # For 2-pass STAR alignment
 ./scripts/multimodal_integration.R  # For integrated analysis
 
-# Option 4: Docker container
+# Option 6: Docker container
 docker-compose up
 ```
 
@@ -162,6 +169,25 @@ python scripts/generate_visualizations.py
 
 # Multimodal integration
 Rscript scripts/multimodal_integration.R
+
+# circRNA analysis
+./scripts/circrna_pipeline.sh
+
+# Integrated analysis (RNA-seq + circRNA)
+./scripts/run_integrated_pipeline.sh --mode all
+```
+
+#### circRNA Analysis Workflow
+```bash
+# Option 1: Standalone circRNA analysis
+./scripts/circrna_pipeline.sh data/raw_fastq "Sample1,Sample2,Sample3" "Cancer,Cancer,Healthy"
+
+# Option 2: Using Snakemake
+cd workflow
+snakemake --use-conda --cores 8 -s Snakefile_circrna
+
+# Option 3: Integrated with standard RNA-seq
+./scripts/run_integrated_pipeline.sh --mode multimodal --samples "S1,S2,S3" --conditions "A,A,B"
 ```
 
 ## 🔄 Pipeline Overview
@@ -181,6 +207,22 @@ graph TD
     I --> J[Final Report]
 ```
 
+### circRNA Analysis Workflow
+
+```mermaid
+graph TD
+    A[Raw FASTQ Files] --> B[Quality Control<br/>FastQC]
+    B --> C[Adapter Trimming<br/>Cutadapt]
+    C --> D[Quality Re-check<br/>FastQC]
+    D --> E[BWA-MEM Alignment<br/>Split-read Detection]
+    E --> F[circRNA Identification<br/>CIRIquant/CIRI2]
+    F --> G[Back-splice Junction<br/>Quantification]
+    G --> H[Differential Expression<br/>DESeq2]
+    H --> I[Functional Annotation<br/>miRNA Binding Sites]
+    I --> J[ceRNA Network<br/>Construction]
+    J --> K[circRNA Report]
+```
+
 ### Multimodal Workflow
 
 ```mermaid
@@ -188,12 +230,15 @@ graph TD
     A[Raw FASTQ Files] --> B[Quality Control<br/>FastQC]
     B --> C[Adapter Trimming<br/>fastp]
     C --> D[2-Pass STAR<br/>Alignment]
-    D --> E[BAM Processing<br/>GATK]
-    E --> F[Somatic Variant Calling<br/>MuTect2]
-    D --> G[Small RNA Analysis]
-    F --> H[Multimodal Integration<br/>R/Python]
-    G --> H
-    H --> I[Integrated Report]
+    C --> E[BWA-MEM<br/>Alignment]
+    D --> F[BAM Processing<br/>GATK]
+    E --> G[circRNA Detection<br/>CIRIquant]
+    F --> H[Somatic Variant Calling<br/>MuTect2]
+    D --> I[Small RNA Analysis]
+    G --> J[Multimodal Integration<br/>R/Python]
+    H --> J
+    I --> J
+    J --> K[Integrated Report]
 ```
 
 ### Supported Analysis Types
@@ -211,6 +256,17 @@ mindmap
       Functional Enrichment
         GO analysis
         KEGG pathways
+    circRNA Analysis
+      Back-splice Junction Detection
+        CIRIquant detection
+        CIRI2 alternative
+      Differential Expression
+        DESeq2 analysis
+        Statistical testing
+      Functional Annotation
+        miRNA sponge prediction
+        ceRNA networks
+        ORF prediction
     Multimodal Analysis
       Somatic Variants
         GATK processing
@@ -218,6 +274,9 @@ mindmap
       Small RNA Analysis
         Custom pipelines
         Expression profiling
+      Data Integration
+        Multi-omics correlation
+        Network analysis
     Visualization
       PCA plots
       Volcano plots

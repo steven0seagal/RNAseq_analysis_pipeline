@@ -1,0 +1,554 @@
+A Comprehensive Guide to circRNA-seq Analysis: From Raw Reads to Functional Insights with Bash and Snakemake PipelinesThe Analytical Framework for circRNA DiscoveryCircular RNA (circRNA) sequencing (circRNA-seq) has emerged as a powerful methodology for the transcriptome-wide characterization of these unique non-coding RNAs. Unlike their linear counterparts, circRNAs form covalently closed loops, a feature that confers remarkable stability and presents distinct challenges and opportunities for bioinformatic analysis.1 A robust analytical pipeline is therefore not merely a sequence of commands but a structured framework designed to accurately identify, quantify, and functionally annotate these molecules from high-throughput sequencing data. This section delineates the principles and methodological rationale underpinning a comprehensive circRNA-seq workflow.Principles of circRNA-seq Data Analysis: The Back-Splice Junction ImperativeThe defining molecular characteristic of a circRNA is the "back-splice junction" (BSJ), a unique covalent linkage formed when a downstream 5' splice site is joined to an upstream 3' splice site during a non-canonical splicing event known as back-splicing.3 This BSJ is the singular, unambiguous signature that distinguishes a circRNA from its linear cognate transcript. Consequently, the primary objective of any circRNA detection algorithm is the accurate identification of sequencing reads that span this junction.5This fundamental principle has profound implications for the entire analytical strategy. Standard RNA-seq alignment algorithms, which are optimized for mapping reads to a linear reference genome, are inherently incapable of correctly aligning a read that spans a non-collinear BSJ in a single, contiguous alignment.3 This necessitates the use of specialized detection tools or aligners capable of identifying "chimeric" or "split" reads whose segments map to the genome in a non-sequential order that is consistent with a back-splicing event.The accuracy of BSJ detection is the critical determinant for the validity of all subsequent analyses. Quantification of circRNA abundance relies almost exclusively on counting the number of reads that support a given BSJ.3 Downstream functional characterization, such as designing validation primers that span the junction or predicting open reading frames (ORFs) that cross the back-splice site, is entirely dependent on the precise genomic coordinates of the BSJ.7 Therefore, the entire analytical pipeline must be architected to maximize the fidelity of this single, pivotal step.Experimental design choices, particularly in library preparation, also influence the analysis. While many studies employ total RNA-seq with ribosomal RNA (rRNA) depletion, some protocols include treatment with RNase R, an exonuclease that degrades linear RNAs while leaving circular molecules intact.9 This enriches the library for circRNAs and can increase the sensitivity of detection, although it may not necessarily improve specificity and can introduce biases.9 The pipelines presented herein are designed to be robust for standard rRNA-depleted total RNA-seq data, which represents the most common experimental approach.Stage 1: Data Quality Control and Pre-processingThe initial step in any sequencing analysis is rigorous quality control (QC) and pre-processing of the raw data. Raw FASTQ files invariably contain technical artifacts, such as remnant adapter sequences from library preparation and low-quality base calls at the ends of reads, which can interfere with accurate read mapping and lead to the generation of false-positive circRNA candidates.3The established best practice involves a two-step process. First, FastQC is used to generate a comprehensive diagnostic report on the quality of the raw sequencing reads, assessing metrics like per-base quality scores, GC content, and adapter contamination.3 Second, based on this report, a trimming tool is employed to remove these artifacts. For this purpose, Cutadapt is an excellent choice due to its flexibility and efficiency in identifying and trimming adapter sequences, low-quality ends (based on a Phred score threshold), and other unwanted sequences from reads.11 After trimming, a second run of FastQC is performed on the cleaned reads to confirm the removal of artifacts and the overall improvement in data quality.Stage 2: Alignment Against a Reference GenomeThe choice of a read aligner is one of the most critical decisions in a circRNA-seq pipeline, and it highlights a significant departure from standard linear RNA-seq workflows. For conventional transcriptome analysis, splice-aware aligners such as STAR are the industry standard due to their ability to accurately map reads across exon-exon junctions.11 However, many of the most robust and widely cited circRNA detection algorithms are specifically optimized to work with the output of a different aligner: BWA-MEM.13This decision is not arbitrary but is dictated by the operational mechanism of the downstream detection tool. BWA-MEM is a non-splice-aware aligner that identifies reads that cannot be mapped contiguously and reports them as "split-read" alignments in the output SAM file. These split reads, where different segments of the same read map to distinct genomic locations, are precisely the raw signal that circRNA detectors like CIRI2 are designed to parse. CIRI2 systematically scans these split-read alignments for the characteristic non-collinear pattern indicative of a BSJ.15While STAR can identify chimeric reads that may correspond to BSJs, its output format and mapping quality calculations are different and not the preferred input for certain top-tier detectors.16 The performance of a circRNA detector is often tightly coupled with the specific alignment information provided by its expected aligner. Therefore, to maximize the accuracy of circRNA identification with our chosen detector, CIRI2, the use of BWA-MEM is not merely an option but a prerequisite. This illustrates a key principle of specialized bioinformatics: the requirements of the most critical downstream analytical step must govern the choice of upstream tools, even if that choice deviates from general-purpose conventions.Stage 3: circRNA Identification and QuantificationWith properly aligned reads, the next stage is the core task of identifying and quantifying circRNAs. A plethora of tools have been developed for this purpose, which can be broadly categorized into BSJ-based, integrated, and machine-learning approaches.5 The performance of these tools can vary significantly in terms of precision, sensitivity, and computational cost.Comprehensive benchmarking studies that compare the performance of multiple detection tools on both simulated and real datasets are invaluable for making an informed choice. Such studies have consistently shown that CIRI2 exhibits a superior and well-balanced performance profile, demonstrating high precision and recall compared to other widely used tools like find_circ, CIRCexplorer2, and DCC.17 CIRI2 employs a sophisticated multiple seed matching algorithm and robust filtering strategies to minimize false positives, and it can perform de novo detection without absolute reliance on gene annotations.15For quantification, the CIRIquant tool, developed as part of the same toolkit, is the logical choice.19 Instead of relying solely on raw BSJ read counts, CIRIquant provides a more refined quantification by calculating the ratio of reads spanning the back-splice junction (BSJ) to reads spanning the corresponding canonical forward-splice junctions (FSJ) of the host gene. This "junction ratio" can help normalize for the expression level of the parent gene, providing a more accurate measure of the circular-to-linear isoform ratio.20 CIRIquant conveniently packages the entire workflow, from alignment and CIRI2-based detection to quantification, into a single, streamlined tool.Table 1: Comparison of Selected circRNA Identification ToolsTool NameAlgorithmic ApproachRequired AlignerKey StrengthsKey LimitationsReference(s)CIRI2Multiple Seed Matching; de novo detectionBWA-MEMHigh precision/recall balance; robust performance across datasets; annotation-independent.Requires specific BWA-MEM output; can be computationally intensive.15CIRCexplorer2Annotation-based realignment of chimeric readsSTAR, TopHat2, etc.Good for characterizing alternative splicing within circRNAs; supports multiple aligners.Relies heavily on existing gene annotations; may have higher false positive rates for novel circRNAs.22find_circAnchor-based realignment of unmapped readsBowtie2One of the first and most cited tools; straightforward approach.Lower sensitivity compared to newer tools; may produce more false positives.24Stage 4: Differential Expression (DE) AnalysisIdentifying which circRNAs have altered expression levels between different experimental conditions is a primary goal of many circRNA-seq studies. Once a count matrix of BSJ reads for each circRNA across all samples has been generated by CIRIquant, established statistical methods developed for bulk RNA-seq can be effectively applied.The DESeq2 R package is a widely accepted and robust tool for this purpose.3 It models the raw counts using a negative binomial distribution, which appropriately accounts for the variance and mean relationship typical of sequencing data. DESeq2 incorporates robust normalization methods to account for differences in library size and composition, and it performs rigorous statistical testing to identify circRNAs with significant changes in expression, controlling for the false discovery rate.4 It is important to note that circRNA expression is often lower than that of linear mRNAs, resulting in datasets with a higher proportion of zero counts.6 Therefore, a crucial pre-analysis step involves filtering out circRNAs with very low counts across all samples to increase the statistical power for detecting genuine differential expression.Stage 5: Multi-faceted Functional AnnotationA list of differentially expressed (DE) circRNAs, while statistically significant, provides limited biological insight. A truly comprehensive pipeline must transform this list into a set of testable biological hypotheses. This is achieved through a multi-faceted functional annotation stage that predicts the potential molecular roles of the identified circRNAs based on their sequence characteristics. This process effectively converts the pipeline from a data-processing utility into a hypothesis-generation engine, directly guiding subsequent experimental validation.Function 1: miRNA Sponge ActivityOne of the most widely studied functions of circRNAs is their role as microRNA (miRNA) "sponges" or "competing endogenous RNAs" (ceRNAs).1 According to this model, circRNAs contain multiple miRNA Response Elements (MREs) that bind to and sequester specific miRNAs, thereby preventing them from regulating their canonical mRNA targets.26 To predict this activity, the pipeline will first extract the full nucleotide sequences of the DE circRNAs using bedtools getfasta.26 Subsequently, these sequences will be scanned for MREs using a consensus approach from at least two well-established prediction algorithms, such as miRanda and TargetScan, to increase the confidence of the predictions.29Function 2: RNA-Binding Protein (RBP) InteractionCircRNAs can also function as scaffolds that bring multiple proteins into a complex or as decoys that sequester RNA-Binding Proteins (RBPs), thereby influencing processes like transcription and alternative splicing of other genes.2 This function can be predicted by scanning the circRNA sequences for known RBP binding motifs. Tools such as CRAFT can perform this analysis, or sequences can be queried against comprehensive databases of experimentally determined RBP binding sites, such as those available in starBase.26Function 3: Translation PotentialAlthough long considered non-coding, a growing body of evidence indicates that some circRNAs can be translated into functional peptides or proteins.13 This translation occurs in a cap-independent manner and is often driven by the presence of an Internal Ribosome Entry Site (IRES) within the circRNA sequence.4 The pipeline will assess this potential by using a tool like the NCBI ORFfinder to scan the circRNA sequences for Open Reading Frames (ORFs).33 A particularly compelling prediction is an ORF that spans the back-splice junction, as this would produce a unique protein product not encoded by the linear mRNA, providing a strong candidate for a circRNA-specific function.Pipeline I: A Modular Bash Script Workflow (circRNA_pipeline.sh)This section provides a complete, well-documented Bash script for performing the comprehensive circRNA-seq analysis. This workflow is designed for users who prefer a straightforward, linear execution model and is suitable for analyzing a small to moderate number of samples on a single server. The script is modular, with clear sections corresponding to each stage of the analysis framework.Environment Setup and DependenciesFor reproducibility and to avoid software conflicts, it is strongly recommended to use a package manager like Conda to create a dedicated, self-contained environment for the pipeline. The following environment.yml file can be used with Conda to automatically install all necessary dependencies.YAML# environment.yml
+# Create this environment with: conda env create -f environment.yml
+# Activate with: conda activate circrna_env
+name: circrna_env
+channels:
+  - defaults
+  - bioconda
+  - conda-forge
+dependencies:
+  - python=3.8
+  - fastqc=0.11.9
+  - cutadapt=4.1
+  - bwa=0.7.17
+  - samtools=1.15
+  - bedtools=2.30.0
+  - ciriquant=1.1.3  # This package from bioconda includes CIRI2
+  - miranda=3.3a
+  - r-base=4.2
+  - r-deseq2=1.36.0
+  - r-tidyverse=1.3.2
+Table 2: Software Dependencies and InstallationSoftwareRecommended VersionPurpose in PipelineConda Installation CommandFastQC0.11.9Raw and trimmed read quality controlconda install -c bioconda fastqcCutadapt4.1Adapter and quality trimmingconda install -c bioconda cutadaptBWA0.7.17Read alignment to reference genomeconda install -c bioconda bwaSamtools1.15Manipulation of SAM/BAM filesconda install -c bioconda samtoolsCIRIquant1.1.3circRNA identification, annotation, and quantificationconda install -c bioconda ciriquantBedtools2.30.0Genomic feature manipulation (e.g., sequence extraction)conda install -c bioconda bedtoolsmiRanda3.3amiRNA binding site predictionconda install -c bioconda mirandaR & DESeq2>=4.2 & >=1.36.0Differential expression analysisconda install -c bioconda r-base r-deseq2The circRNA_pipeline.sh ScriptThe following script automates the entire workflow. Users must first edit the "CONFIGURATION" section to specify paths to their input files and reference data.Bash#!/bin/bash
+set -e # Exit immediately if a command exits with a non-zero status.
+set -u # Treat unset variables as an error.
+set -o pipefail # The return value of a pipeline is the status of the last command to exit with a non-zero status.
+
+#================================================================================
+# COMPREHENSIVE circRNA-SEQ ANALYSIS PIPELINE (BASH SCRIPT)
+#================================================================================
+# This script performs a full circRNA analysis workflow, from raw FASTQ files
+# to functional annotation of differentially expressed circRNAs.
+#
+# USAGE:
+# 1. Activate the conda environment: conda activate circrna_env
+# 2. Edit the CONFIGURATION section below.
+# 3. Make the script executable: chmod +x circRNA_pipeline.sh
+# 4. Run the script:./circRNA_pipeline.sh
+#================================================================================
+
+#===========================#
+# --- CONFIGURATION --- #
+#===========================#
+
+# --- Paths to Input Data ---
+# Directory containing paired-end FASTQ files (e.g., sample1_R1.fastq.gz, sample1_R2.fastq.gz)
+FASTQ_DIR="path/to/your/fastq"
+# A comma-separated list of sample names (prefixes of FASTQ files)
+SAMPLES="sample1,sample2,sample3,sample4"
+# A comma-separated list of conditions corresponding to the samples (e.g., "control,control,treatment,treatment")
+CONDITIONS="control,control,treatment,treatment"
+
+# --- Paths to Reference Files ---
+REF_GENOME="path/to/your/genome.fa"
+BWA_INDEX="path/to/your/genome.fa" # BWA will use the FASTA file to find the index; ensure it's indexed first!
+GTF_ANNOTATION="path/to/your/annotation.gtf"
+MIRNA_FASTA="path/to/your/mature_mirna.fa" # Mature miRNA sequences for your species
+
+# --- Analysis Parameters ---
+THREADS=8
+ADAPTER_FWD="AGATCGGAAGAGCACACGTCTGAACTCCAGTCA" # Standard Illumina forward adapter
+ADAPTER_REV="AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT" # Standard Illumina reverse adapter
+MIN_READ_LEN=35
+P_VALUE_CUTOFF=0.05
+LOG2FC_CUTOFF=1.0
+
+# --- Output Directories ---
+# A main directory to store all results
+OUTPUT_DIR="circRNA_analysis_results"
+
+#================================================================================
+# --- SCRIPT EXECUTION ---
+#================================================================================
+
+echo "--- Starting Comprehensive circRNA-seq Analysis Pipeline ---"
+
+# --- Create Directory Structure ---
+mkdir -p ${OUTPUT_DIR}/{01_fastqc_raw,02_trimmed_reads,03_fastqc_trimmed,04_alignment,05_ciri_quant,06_de_analysis,07_functional_annotation}
+
+# --- Convert comma-separated strings to arrays ---
+IFS=',' read -r -a SAMPLE_ARRAY <<< "$SAMPLES"
+IFS=',' read -r -a CONDITION_ARRAY <<< "$CONDITIONS"
+
+#================================================#
+# STAGE 1 & 2: QC AND TRIMMING                   #
+#================================================#
+echo "--- STAGE 1 & 2: Running FastQC and Cutadapt ---"
+for sample in "${SAMPLE_ARRAY[@]}"; do
+    R1_IN="${FASTQ_DIR}/${sample}_R1.fastq.gz"
+    R2_IN="${FASTQ_DIR}/${sample}_R2.fastq.gz"
+    R1_OUT="${OUTPUT_DIR}/02_trimmed_reads/${sample}_R1.trimmed.fastq.gz"
+    R2_OUT="${OUTPUT_DIR}/02_trimmed_reads/${sample}_R2.trimmed.fastq.gz"
+
+    echo "Processing sample: ${sample}"
+
+    # Raw FastQC
+    fastqc -t ${THREADS} -o ${OUTPUT_DIR}/01_fastqc_raw ${R1_IN} ${R2_IN}
+
+    # Adapter and Quality Trimming
+    cutadapt -j ${THREADS} \
+        -a ${ADAPTER_FWD} -A ${ADAPTER_REV} \
+        -q 20,20 -m ${MIN_READ_LEN} \
+        -o ${R1_OUT} -p ${R2_OUT} \
+        ${R1_IN} ${R2_IN} > ${OUTPUT_DIR}/02_trimmed_reads/${sample}_trimming_report.txt
+
+    # Trimmed FastQC
+    fastqc -t ${THREADS} -o ${OUTPUT_DIR}/03_fastqc_trimmed ${R1_OUT} ${R2_OUT}
+done
+
+#================================================#
+# STAGE 3: ALIGNMENT WITH BWA-MEM                #
+#================================================#
+echo "--- STAGE 3: Aligning reads with BWA-MEM ---"
+# First, check if BWA index exists. If not, create it.
+if; then
+    echo "BWA index not found. Creating index for ${REF_GENOME}..."
+    bwa index ${REF_GENOME}
+fi
+
+for sample in "${SAMPLE_ARRAY[@]}"; do
+    R1_TRIMMED="${OUTPUT_DIR}/02_trimmed_reads/${sample}_R1.trimmed.fastq.gz"
+    R2_TRIMMED="${OUTPUT_DIR}/02_trimmed_reads/${sample}_R2.trimmed.fastq.gz"
+    SAM_OUT="${OUTPUT_DIR}/04_alignment/${sample}.sam"
+    BAM_OUT="${OUTPUT_DIR}/04_alignment/${sample}.bam"
+
+    echo "Aligning sample: ${sample}"
+
+    # BWA-MEM alignment. CIRI2 requires the SAM file.
+    bwa mem -t ${THREADS} -T 19 ${BWA_INDEX} ${R1_TRIMMED} ${R2_TRIMMED} > ${SAM_OUT}
+
+    # Convert to BAM for other potential uses (optional but good practice)
+    samtools view -@ ${THREADS} -Sb ${SAM_OUT} > ${BAM_OUT}
+done
+
+#================================================#
+# STAGE 4: circRNA IDENTIFICATION & QUANTIFICATION #
+#================================================#
+echo "--- STAGE 4: Running CIRIquant ---"
+# Create a config file for CIRIquant
+CIRI_CONFIG="${OUTPUT_DIR}/05_ciri_quant/ciri_config.yml"
+echo "tools:" > ${CIRI_CONFIG}
+echo "  bwa: $(which bwa)" >> ${CIRI_CONFIG}
+echo "  hisat2: $(which hisat2)" >> ${CIRI_CONFIG} # Required by CIRIquant even if not used for linear mapping
+echo "  stringtie: $(which stringtie)" >> ${CIRI_CONFIG}
+echo "  samtools: $(which samtools)" >> ${CIRI_CONFIG}
+echo "reference:" >> ${CIRI_CONFIG}
+echo "  fasta: ${REF_GENOME}" >> ${CIRI_CONFIG}
+echo "  gtf: ${GTF_ANNOTATION}" >> ${CIRI_CONFIG}
+echo "  bwa_index: ${BWA_INDEX}" >> ${CIRI_CONFIG}
+echo "  hisat_index: ${BWA_INDEX}" >> ${CIRI_CONFIG} # Placeholder, create HISAT2 index if needed for linear analysis
+
+for sample in "${SAMPLE_ARRAY[@]}"; do
+    R1_TRIMMED="${OUTPUT_DIR}/02_trimmed_reads/${sample}_R1.trimmed.fastq.gz"
+    R2_TRIMMED="${OUTPUT_DIR}/02_trimmed_reads/${sample}_R2.trimmed.fastq.gz"
+    
+    echo "Running CIRIquant for sample: ${sample}"
+    CIRIquant -t ${THREADS} \
+        -1 ${R1_TRIMMED} -2 ${R2_TRIMMED} \
+        --config ${CIRI_CONFIG} \
+        -p ${sample} \
+        -o ${OUTPUT_DIR}/05_ciri_quant/${sample}
+done
+
+#================================================#
+# STAGE 5: MERGE COUNTS & DIFFERENTIAL EXPRESSION #
+#================================================#
+echo "--- STAGE 5: Merging counts and running DESeq2 ---"
+# Create a sample information file for the R script
+SAMPLE_INFO_FILE="${OUTPUT_DIR}/06_de_analysis/sample_info.tsv"
+echo -e "sample\tcondition" > ${SAMPLE_INFO_FILE}
+for i in "${!SAMPLE_ARRAY[@]}"; do
+    echo -e "${SAMPLE_ARRAY[$i]}\t${CONDITION_ARRAY[$i]}" >> ${SAMPLE_INFO_FILE}
+done
+
+# Create a Python script to merge CIRIquant outputs into a count matrix
+MERGE_SCRIPT="${OUTPUT_DIR}/06_de_analysis/merge_counts.py"
+COUNT_MATRIX="${OUTPUT_DIR}/06_de_analysis/circRNA_count_matrix.tsv"
+
+cat << EOF > ${MERGE_SCRIPT}
+import pandas as pd
+import glob
+import os
+
+sample_files = glob.glob("${OUTPUT_DIR}/05_ciri_quant/*/*.gtf")
+count_dict = {}
+
+for f in sample_files:
+    sample_name = os.path.basename(os.path.dirname(f))
+    df = pd.read_csv(f, sep='\\t', header=None, comment='#')
+    df.columns = ['chr', 'source', 'type', 'start', 'end', 'score', 'strand', 'phase', 'attributes']
+    df_circ = df[df['type'] == 'circRNA'].copy()
+    
+    df_circ['circ_id'] = df_circ['attributes'].str.extract(r'circ_id "([^"]+)"')
+    df_circ['bsj_reads'] = df_circ['attributes'].str.extract(r'bsj "([^"]+)"').astype(int)
+    
+    for _, row in df_circ.iterrows():
+        if row['circ_id'] not in count_dict:
+            count_dict[row['circ_id']] = {}
+        count_dict[row['circ_id']][sample_name] = row['bsj_reads']
+
+count_df = pd.DataFrame(count_dict).T.fillna(0).astype(int)
+count_df.index.name = 'circRNA_ID'
+count_df.to_csv("${COUNT_MATRIX}", sep='\\t')
+EOF
+
+python ${MERGE_SCRIPT}
+
+# Create an R script for DESeq2 analysis
+DESEQ_SCRIPT="${OUTPUT_DIR}/06_de_analysis/run_deseq2.R"
+DE_RESULTS_FILE="${OUTPUT_DIR}/06_de_analysis/DE_results.csv"
+VOLCANO_PLOT="${OUTPUT_DIR}/06_de_analysis/volcano_plot.pdf"
+
+cat << EOF > ${DESEQ_SCRIPT}
+library(DESeq2)
+library(tidyverse)
+
+# Load data
+count_data <- read.table("${COUNT_MATRIX}", header=TRUE, row.names=1, sep="\\t")
+sample_info <- read.table("${SAMPLE_INFO_FILE}", header=TRUE, row.names=1, sep="\\t")
+
+# Ensure column names match row names
+count_data <- count_data[, rownames(sample_info)]
+
+# Create DESeqDataSet
+dds <- DESeqDataSetFromMatrix(countData = count_data,
+                              colData = sample_info,
+                              design = ~ condition)
+
+# Pre-filter low count genes
+keep <- rowSums(counts(dds)) >= 10
+dds <- dds[keep,]
+
+# Run DESeq
+dds <- DESeq(dds)
+res <- results(dds)
+res_df <- as.data.frame(res) %>%
+          rownames_to_column("circRNA_ID") %>%
+          arrange(padj)
+
+# Write results to file
+write.csv(res_df, file="${DE_RESULTS_FILE}", row.names=FALSE)
+
+# Create a volcano plot
+res_df <- res_df %>%
+  mutate(significant = ifelse(padj < ${P_VALUE_CUTOFF} & abs(log2FoldChange) > ${LOG2FC_CUTOFF}, "yes", "no"))
+
+p <- ggplot(res_df, aes(x = log2FoldChange, y = -log10(pvalue))) +
+  geom_point(aes(color = significant), alpha = 0.6) +
+  scale_color_manual(values = c("no" = "grey", "yes" = "red")) +
+  theme_bw(base_size = 14) +
+  labs(title = "Volcano Plot of Differential circRNA Expression",
+       x = "Log2 Fold Change",
+       y = "-Log10 P-value") +
+  geom_vline(xintercept = c(-${LOG2FC_CUTOFF}, ${LOG2FC_CUTOFF}), linetype = "dashed") +
+  geom_hline(yintercept = -log10(${P_VALUE_CUTOFF}), linetype = "dashed")
+
+ggsave("${VOLCANO_PLOT}", plot = p, width = 8, height = 6)
+EOF
+
+Rscript ${DESEQ_SCRIPT}
+
+#================================================#
+# STAGE 6: FUNCTIONAL ANNOTATION                 #
+#================================================#
+echo "--- STAGE 6: Running functional annotation on significant circRNAs ---"
+# Extract significant circRNAs
+SIG_CIRCS_BED="${OUTPUT_DIR}/07_functional_annotation/significant_circs.bed"
+awk -F, 'NR > 1 && \$7 < '${P_VALUE_CUTOFF}' && (\$3 > '${LOG2FC_CUTOFF}' |
+
+| \$3 < -'${LOG2FC_CUTOFF}') {print \$1}' ${DE_RESULTS_FILE} | \
+sed 's/:/\t/;s/|/\t/' > ${SIG_CIRCS_BED}
+
+# Extract sequences
+SIG_CIRCS_FASTA="${OUTPUT_DIR}/07_functional_annotation/significant_circs.fasta"
+bedtools getfasta -fi ${REF_GENOME} -bed ${SIG_CIRCS_BED} -fo ${SIG_CIRCS_FASTA}
+
+# Predict miRNA binding sites with miRanda
+MIRANDA_OUT="${OUTPUT_DIR}/07_functional_annotation/miranda_predictions.txt"
+miranda ${MIRNA_FASTA} ${SIG_CIRCS_FASTA} -out ${MIRANDA_OUT}
+
+# Predict ORFs with getorf (from EMBOSS suite, assumed installed in env)
+ORF_OUT="${OUTPUT_DIR}/07_functional_annotation/orf_predictions.fasta"
+# getorf -sequence ${SIG_CIRCS_FASTA} -outseq ${ORF_OUT} -minsize 60 # Requires EMBOSS
+
+echo "--- Pipeline Finished Successfully ---"
+echo "Results are located in: ${OUTPUT_DIR}"
+Execution Guide and Output InterpretationTo run the pipeline, follow these steps:Prepare Inputs: Place all paired-end FASTQ files in a single directory. Create a list of sample names (e.g., "sample1,sample2").Download References: Obtain the reference genome FASTA (.fa) and gene annotation GTF (.gtf) for your species of interest from a repository like Ensembl or GENCODE. Also, download a FASTA file of mature miRNA sequences from a database like miRBase.Setup Environment: Create and activate the Conda environment using the provided environment.yml file.Configure Script: Open circRNA_pipeline.sh and edit the variables in the "CONFIGURATION" section to match your file paths and parameters.Execute: Run the script from your terminal using ./circRNA_pipeline.sh.Upon completion, the OUTPUT_DIR will contain a structured set of results. Key files for interpretation are detailed in Table 3.Pipeline II: A Scalable and Reproducible Snakemake WorkflowFor larger projects, multi-user environments, or research destined for publication, a more sophisticated workflow management system is essential. Snakemake provides a robust framework for creating scalable, reproducible, and portable bioinformatics pipelines. This approach represents a paradigm shift from the procedural nature of a Bash script, which specifies how to run commands, to a declarative model. In Snakemake, one defines a series of rules that specify what output to create from what input, and the Snakemake engine automatically determines the optimal execution order, parallelization, and dependency graph. This minimizes human error, enhances efficiency by only re-running necessary steps, and ensures the entire analysis can be exactly reproduced by others.Workflow Architecture: Snakefile, Configuration, and Sample SheetThe Snakemake workflow is organized into three main files, separating the logic, configuration, and sample information.config.yaml: This file centralizes all global parameters, such as paths to reference files, software settings, and analysis thresholds. This separation allows for easy modification of parameters without altering the pipeline's core logic.samples.tsv: A simple tab-separated file that lists the sample names and their corresponding experimental condition. The pipeline uses this file to automatically find the input FASTQ files.Snakefile: This is the heart of the workflow, containing all the rules that define the analysis steps. Each rule is a small, self-contained unit that specifies its inputs, outputs, and the command to be executed.The Complete Snakemake WorkflowBelow are the contents for the three files required to run the Snakemake pipeline.config.yamlYAML# Global configuration for the circRNA-seq Snakemake workflow
+
+# List of sample names, must match prefixes of FASTQ files and names in samples.tsv
+samples:
+  - sample1
+  - sample2
+  - sample3
+  - sample4
+
+# Paths to reference files
+reference:
+  genome: "path/to/your/genome.fa"
+  gtf: "path/to/your/annotation.gtf"
+  mirna: "path/to/your/mature_mirna.fa"
+
+# Adapter sequences
+adapters:
+  fwd: "AGATCGGAAGAGCACACGTCTGAACTCCAGTCA"
+  rev: "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT"
+
+# Analysis parameters
+params:
+  trimming:
+    min_len: 35
+    quality: 20
+  alignment:
+    bwa_mem_T: 19
+  diff_exp:
+    pval_cutoff: 0.05
+    log2fc_cutoff: 1.0
+samples.tsvFragment kodusample	condition
+sample1	control
+sample2	control
+sample3	treatment
+sample4	treatment
+SnakefilePython# Snakemake workflow for comprehensive circRNA-seq analysis
+import pandas as pd
+
+# --- Load Configuration and Sample Information ---
+configfile: "config.yaml"
+samples_df = pd.read_csv("samples.tsv", sep="\t").set_index("sample", drop=False)
+SAMPLES = samples_df.index.tolist()
+
+#================================================#
+# TARGET RULE: Define final output files         #
+#================================================#
+rule all:
+    input:
+        "results/multiqc/multiqc_report.html",
+        "results/06_de_analysis/DE_results.csv",
+        "results/06_de_analysis/volcano_plot.pdf",
+        "results/07_functional_annotation/miranda_predictions.txt"
+
+#================================================#
+# WORKFLOW RULES                                 #
+#================================================#
+
+# --- Stage 1 & 2: QC and Trimming ---
+rule fastqc_raw:
+    input:
+        r1="data/{sample}_R1.fastq.gz",
+        r2="data/{sample}_R2.fastq.gz"
+    output:
+        r1_html="results/01_fastqc_raw/{sample}_R1_fastqc.html",
+        r2_html="results/01_fastqc_raw/{sample}_R2_fastqc.html"
+    params:
+        outdir="results/01_fastqc_raw"
+    threads: 2
+    shell:
+        "fastqc -t {threads} -o {params.outdir} {input.r1} {input.r2}"
+
+rule cutadapt:
+    input:
+        r1="data/{sample}_R1.fastq.gz",
+        r2="data/{sample}_R2.fastq.gz"
+    output:
+        r1="results/02_trimmed_reads/{sample}_R1.trimmed.fastq.gz",
+        r2="results/02_trimmed_reads/{sample}_R2.trimmed.fastq.gz"
+    params:
+        fwd_adapter=config["adapters"]["fwd"],
+        rev_adapter=config["adapters"]["rev"],
+        quality=config["params"]["trimming"]["quality"],
+        min_len=config["params"]["trimming"]["min_len"]
+    log:
+        "logs/cutadapt/{sample}.log"
+    threads: 8
+    shell:
+        "cutadapt -j {threads} "
+        "-a {params.fwd_adapter} -A {params.rev_adapter} "
+        "-q {params.quality},{params.quality} -m {params.min_len} "
+        "-o {output.r1} -p {output.r2} "
+        "{input.r1} {input.r2} > {log}"
+
+rule fastqc_trimmed:
+    input:
+        r1="results/02_trimmed_reads/{sample}_R1.trimmed.fastq.gz",
+        r2="results/02_trimmed_reads/{sample}_R2.trimmed.fastq.gz"
+    output:
+        r1_html="results/03_fastqc_trimmed/{sample}_R1.trimmed_fastqc.html",
+        r2_html="results/03_fastqc_trimmed/{sample}_R2.trimmed_fastqc.html"
+    params:
+        outdir="results/03_fastqc_trimmed"
+    threads: 2
+    shell:
+        "fastqc -t {threads} -o {params.outdir} {input.r1} {input.r2}"
+
+# --- Stage 3: Alignment ---
+rule bwa_index:
+    input:
+        config["reference"]["genome"]
+    output:
+        touch(config["reference"]["genome"] + ".bwt")
+    shell:
+        "bwa index {input}"
+
+rule bwa_mem:
+    input:
+        r1="results/02_trimmed_reads/{sample}_R1.trimmed.fastq.gz",
+        r2="results/02_trimmed_reads/{sample}_R2.trimmed.fastq.gz",
+        ref=config["reference"]["genome"],
+        idx=config["reference"]["genome"] + ".bwt"
+    output:
+        bam=temp("results/04_alignment/{sample}.bam") # Use temp() to delete intermediate SAM
+    log:
+        "logs/bwa_mem/{sample}.log"
+    params:
+        rg=r"@RG\tID:{sample}\tSM:{sample}",
+        T_val=config["params"]["alignment"]
+    threads: 8
+    shell:
+        "(bwa mem -t {threads} -T {params.T_val} -R '{params.rg}' {input.ref} {input.r1} {input.r2} | "
+        "samtools view -@ {threads} -Sb - > {output.bam}) 2> {log}"
+
+# --- Stage 4: circRNA Identification & Quantification ---
+rule ciriquant:
+    input:
+        r1="results/02_trimmed_reads/{sample}_R1.trimmed.fastq.gz",
+        r2="results/02_trimmed_reads/{sample}_R2.trimmed.fastq.gz",
+        ref_genome=config["reference"]["genome"],
+        ref_gtf=config["reference"]["gtf"]
+    output:
+        gtf="results/05_ciri_quant/{sample}/{sample}.gtf"
+    params:
+        prefix="{sample}",
+        outdir="results/05_ciri_quant/{sample}"
+    log:
+        "logs/ciriquant/{sample}.log"
+    threads: 8
+    run:
+        # CIRIquant requires a config file, we generate it on the fly
+        ciri_config = f"results/05_ciri_quant/{wildcards.sample}/ciri_config.yml"
+        with open(ciri_config, "w") as f:
+            f.write(f"tools:\n")
+            f.write(f"  bwa: bwa\n")
+            f.write(f"  hisat2: hisat2\n")
+            f.write(f"  stringtie: stringtie\n")
+            f.write(f"  samtools: samtools\n")
+            f.write(f"reference:\n")
+            f.write(f"  fasta: {config['reference']['genome']}\n")
+            f.write(f"  gtf: {config['reference']['gtf']}\n")
+            f.write(f"  bwa_index: {config['reference']['genome']}\n")
+            f.write(f"  hisat_index: {config['reference']['genome']}\n")
+
+        shell("CIRIquant -t {threads} "
+              "-1 {input.r1} -2 {input.r2} "
+              "--config {ciri_config} "
+              "-p {params.prefix} -o {params.outdir} > {log} 2>&1")
+
+# --- Stage 5: Merge Counts & Differential Expression ---
+rule merge_counts:
+    input:
+        expand("results/05_ciri_quant/{sample}/{sample}.gtf", sample=SAMPLES)
+    output:
+        "results/06_de_analysis/circRNA_count_matrix.tsv"
+    run:
+        # This part can be implemented with a python script call for robustness
+        import pandas as pd
+        count_dict = {}
+        for f in list(input):
+            sample_name = f.split('/')[-2]
+            df = pd.read_csv(f, sep='\t', header=None, comment='#')
+            df.columns = ['chr', 'source', 'type', 'start', 'end', 'score', 'strand', 'phase', 'attributes']
+            df_circ = df[df['type'] == 'circRNA'].copy()
+            df_circ['circ_id'] = df_circ['attributes'].str.extract(r'circ_id "([^"]+)"')
+            df_circ['bsj_reads'] = df_circ['attributes'].str.extract(r'bsj "([^"]+)"').astype(int)
+            for _, row in df_circ.iterrows():
+                if row['circ_id'] not in count_dict:
+                    count_dict[row['circ_id']] = {}
+                count_dict[row['circ_id']][sample_name] = row['bsj_reads']
+        
+        count_df = pd.DataFrame(count_dict).T.fillna(0).astype(int)
+        count_df.index.name = 'circRNA_ID'
+        count_df.to_csv(output, sep='\t')
+
+rule deseq2:
+    input:
+        counts="results/06_de_analysis/circRNA_count_matrix.tsv",
+        samples="samples.tsv"
+    output:
+        results="results/06_de_analysis/DE_results.csv",
+        plot="results/06_de_analysis/volcano_plot.pdf"
+    params:
+        pval=config["params"]["diff_exp"]["pval_cutoff"],
+        l2fc=config["params"]["diff_exp"]["log2fc_cutoff"]
+    script:
+        "scripts/run_deseq2.R"
+
+# --- Stage 6: Functional Annotation ---
+rule extract_significant_circs:
+    input:
+        de_results="results/06_de_analysis/DE_results.csv"
+    output:
+        bed="results/07_functional_annotation/significant_circs.bed"
+    params:
+        pval=config["params"]["diff_exp"]["pval_cutoff"],
+        l2fc=config["params"]["diff_exp"]["log2fc_cutoff"]
+    shell:
+        "awk -F, 'NR > 1 && $7 < {params.pval} && ($3 > {params.l2fc} |
+
+| $3 < -{params.l2fc}) {{print $1}}' {input.de_results} | "
+        "sed 's/:/\\t/;s/|/\\t/' > {output.bed}"
+
+rule get_fasta:
+    input:
+        bed="results/07_functional_annotation/significant_circs.bed",
+        ref=config["reference"]["genome"]
+    output:
+        fasta="results/07_functional_annotation/significant_circs.fasta"
+    shell:
+        "bedtools getfasta -fi {input.ref} -bed {input.bed} -fo {output.fasta}"
+
+rule miranda:
+    input:
+        circ_fasta="results/07_functional_annotation/significant_circs.fasta",
+        mirna_fasta=config["reference"]["mirna"]
+    output:
+        "results/07_functional_annotation/miranda_predictions.txt"
+    threads: 4
+    shell:
+        "miranda {input.mirna_fasta} {input.circ_fasta} -out {output} -threads {threads}"
+
+# --- Aggregate QC reports ---
+rule multiqc:
+    input:
+        expand("results/01_fastqc_raw/{sample}_{read}_fastqc.zip", sample=SAMPLES, read=),
+        expand("results/03_fastqc_trimmed/{sample}_{read}.trimmed_fastqc.zip", sample=SAMPLES, read=)
+    output:
+        "results/multiqc/multiqc_report.html"
+    params:
+        outdir="results/multiqc"
+    shell:
+        "multiqc -f -o {params.outdir} results/01_fastqc_raw results/03_fastqc_trimmed"
+
+Note: The DESeq2 rule requires a separate R script (scripts/run_deseq2.R), which would be identical in content to the one generated in the Bash pipeline.Deployment and ExecutionSetup: Create a project directory with the following structure:project_dir/
+├── data/
+│   ├── sample1_R1.fastq.gz
+│   └──...
+├── refs/
+│   ├── genome.fa
+│   └──...
+├── scripts/
+│   └── run_deseq2.R
+├── Snakefile
+├── config.yaml
+└── samples.tsv
+Configuration: Edit config.yaml and samples.tsv with your specific project details.Execution (Local): From the project_dir, run Snakemake, specifying the number of cores to use.Bashconda activate circrna_env
+snakemake --cores 8
+Execution (HPC Cluster): Snakemake can be easily configured to submit jobs to a cluster scheduler like SLURM.Bashsnakemake --cluster "sbatch --cpus-per-task={threads} --mem=16G" --jobs 50
+Reporting: Generate a self-contained, interactive HTML report summarizing the workflow execution and results.Bashsnakemake --report report.html
+Table 3: Key Output Files from the circRNA-seq PipelinesFile Path/PatternGenerating Stage/RuleDescription of ContentPotential Downstream Useresults/multiqc/multiqc_report.htmlmultiqcAggregated quality control report for all samples before and after trimming.Assess data quality; identify problematic samples.results/05_ciri_quant/{sample}/{sample}.gtfciriquantMain output with identified circRNAs, coordinates, BSJ/FSJ counts, and annotations for one sample.Input for merging counts; detailed inspection of individual sample results.results/06_de_analysis/circRNA_count_matrix.tsvmerge_countsA matrix with circRNA IDs as rows, sample names as columns, and BSJ read counts as values.Input for differential expression analysis.results/06_de_analysis/DE_results.csvdeseq2Table of differential expression statistics for each circRNA, including log2 fold change, p-value, and adjusted p-value.Identify significantly up- or down-regulated circRNAs for further study.results/06_de_analysis/volcano_plot.pdfdeseq2A volcano plot visualizing the results of the differential expression analysis.Publication-quality figure summarizing DE results.results/07_functional_annotation/significant_circs.fastaget_fastaFASTA sequences of all significantly differentially expressed circRNAs.Input for miRNA, RBP, and ORF prediction tools.results/07_functional_annotation/miranda_predictions.txtmirandaPredicted miRNA binding sites on the significant circRNAs.Constructing ceRNA networks; hypothesizing miRNA sponge function.Synthesizing and Advancing the AnalysisThe completion of the computational pipeline marks the beginning of biological interpretation. The rich datasets generated provide the raw material for synthesizing results, visualizing complex interactions, and formulating hypotheses for experimental validation.Integrating and Visualizing Functional PredictionsThe true discovery power of the pipeline lies in integrating its disparate outputs. For instance, to identify high-confidence ceRNA candidates, one can overlay the differential expression results with the miRNA sponge predictions. A circRNA that is significantly upregulated in a disease condition and is also predicted to bind to a known tumor-suppressor miRNA becomes a prime candidate for functional follow-up. These complex relationships can be effectively visualized as interaction networks using software like Cytoscape, where nodes represent circRNAs, miRNAs, and target mRNAs, and edges represent their predicted interactions.35For publication and presentation, the results should be distilled into clear, informative visualizations. Standard figures include volcano plots and heatmaps to display differential expression, and custom schematic diagrams of high-interest circRNAs illustrating the locations of predicted MREs, RBP binding sites, and any ORFs that span the back-splice junction.Best Practices, Limitations, and Future DirectionsA significant practical challenge in circRNA research is the lack of a standardized nomenclature across different databases and software tools.5 A circRNA identified in one study may have a different name or slightly different coordinates in another, hindering data integration. The most reliable identifier is the genomic coordinate (e.g., chr:start|end). To facilitate comparison with external databases like circBase or circAtlas, it may be necessary to perform an "ID reconciliation" step, where a simple script adjusts coordinates to match the conventions of the target database (e.g., converting between 0-based and 1-based systems).36 Initiatives like circAtlas 3.0 are working towards a unified naming scheme, which will help alleviate this issue in the future.38It is crucial to acknowledge that all functional predictions generated by this pipeline are in silico. They represent computationally derived hypotheses that require rigorous experimental validation. Techniques such as quantitative PCR (qPCR) with divergent primers to confirm the BSJ, RNA immunoprecipitation (RIP) to validate RBP interactions, and luciferase reporter assays to confirm miRNA binding are essential next steps.9Finally, the field of circRNA biology is rapidly evolving. The advent of long-read sequencing technologies (e.g., Oxford Nanopore, PacBio) offers the potential to sequence full-length circRNA molecules, resolving complex isoform structures that are difficult to reconstruct from short reads. As these technologies become more widespread, new bioinformatic tools, such as CIRI-long, will be required to analyze this new data type, promising an even more detailed view of the circRNA landscape.39

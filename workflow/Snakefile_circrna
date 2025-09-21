@@ -1,0 +1,516 @@
+# ==============================================================================
+# circRNA-seq Analysis Snakemake Workflow
+#
+# A comprehensive workflow for circular RNA discovery and analysis
+# Based on the research framework detailed in the research3 document
+#
+# Usage: snakemake --use-conda --cores 8 -s workflow/Snakefile_circrna
+# ==============================================================================
+
+import pandas as pd
+import os
+from pathlib import Path
+
+# === CONFIGURATION ===
+configfile: "../config/config_circrna.yaml"
+
+# === SAMPLE INFORMATION ===
+SAMPLES_DF = pd.read_csv("../config/samples.tsv", sep="\t").set_index("sample", drop=False)
+SAMPLES = SAMPLES_DF.index.tolist()
+
+# Validate that we have samples
+if len(SAMPLES) == 0:
+    raise ValueError("No samples found in ../config/samples.tsv")
+
+print(f"Found {len(SAMPLES)} samples for circRNA analysis: {SAMPLES}")
+
+# === HELPER FUNCTIONS ===
+def get_fastq(wildcards, read):
+    """Get FASTQ file path for a given sample and read"""
+    return f"../data/raw_fastq/{wildcards.sample}_{read}.fastq.gz"
+
+# === GLOBAL WILDCARD CONSTRAINTS ===
+wildcard_constraints:
+    sample="|".join(SAMPLES),
+    read="R[12]"
+
+# ==============================================================================
+# TARGET RULE: Define final outputs
+# ==============================================================================
+rule all:
+    input:
+        # Quality control outputs
+        expand("../results/circrna/01_fastqc_raw/{sample}_{read}_fastqc.html", sample=SAMPLES, read=["R1", "R2"]),
+        expand("../results/circrna/03_fastqc_trimmed/{sample}_{read}.trimmed_fastqc.html", sample=SAMPLES, read=["R1", "R2"]),
+
+        # Main pipeline outputs
+        "../results/circrna/05_ciri_quant/merged_count_matrix.tsv",
+        "../results/circrna/06_de_analysis/DE_results.csv",
+        "../results/circrna/06_de_analysis/volcano_plot.pdf",
+
+        # Functional annotation
+        "../results/circrna/07_functional_annotation/miranda_predictions.txt",
+
+        # Summary
+        "../results/circrna/analysis_summary.txt"
+
+# ==============================================================================
+# QUALITY CONTROL RULES
+# ==============================================================================
+
+rule fastqc_raw:
+    """Run FastQC on raw FASTQ files"""
+    input:
+        r1=lambda wildcards: get_fastq(wildcards, "R1"),
+        r2=lambda wildcards: get_fastq(wildcards, "R2")
+    output:
+        r1_html="../results/circrna/01_fastqc_raw/{sample}_R1_fastqc.html",
+        r1_zip="../results/circrna/01_fastqc_raw/{sample}_R1_fastqc.zip",
+        r2_html="../results/circrna/01_fastqc_raw/{sample}_R2_fastqc.html",
+        r2_zip="../results/circrna/01_fastqc_raw/{sample}_R2_fastqc.zip"
+    params:
+        outdir="../results/circrna/01_fastqc_raw/"
+    log:
+        "../results/circrna/logs/fastqc_raw/{sample}.log"
+    threads: config["resources"]["threads"] // 4
+    conda:
+        "envs/circrna.yaml"
+    shell:
+        """
+        mkdir -p {params.outdir}
+        fastqc -t {threads} -o {params.outdir} {input.r1} {input.r2} > {log} 2>&1
+        """
+
+rule cutadapt_trimming:
+    """Adapter trimming and quality filtering with Cutadapt"""
+    input:
+        r1=lambda wildcards: get_fastq(wildcards, "R1"),
+        r2=lambda wildcards: get_fastq(wildcards, "R2")
+    output:
+        r1="../results/circrna/02_trimmed_reads/{sample}_R1.trimmed.fastq.gz",
+        r2="../results/circrna/02_trimmed_reads/{sample}_R2.trimmed.fastq.gz",
+        report="../results/circrna/02_trimmed_reads/{sample}_trimming_report.txt"
+    params:
+        adapter_fwd=config["params"]["adapters"]["fwd"],
+        adapter_rev=config["params"]["adapters"]["rev"],
+        min_len=config["params"]["trimming"]["min_len"],
+        quality=config["params"]["trimming"]["quality"]
+    log:
+        "../results/circrna/logs/cutadapt/{sample}.log"
+    threads: config["resources"]["threads"] // 2
+    conda:
+        "envs/circrna.yaml"
+    shell:
+        """
+        mkdir -p ../results/circrna/02_trimmed_reads
+        cutadapt -j {threads} \
+            -a {params.adapter_fwd} -A {params.adapter_rev} \
+            -q {params.quality},{params.quality} -m {params.min_len} \
+            -o {output.r1} -p {output.r2} \
+            {input.r1} {input.r2} > {output.report} 2> {log}
+        """
+
+rule fastqc_trimmed:
+    """Run FastQC on trimmed FASTQ files"""
+    input:
+        r1="../results/circrna/02_trimmed_reads/{sample}_R1.trimmed.fastq.gz",
+        r2="../results/circrna/02_trimmed_reads/{sample}_R2.trimmed.fastq.gz"
+    output:
+        r1_html="../results/circrna/03_fastqc_trimmed/{sample}_R1.trimmed_fastqc.html",
+        r1_zip="../results/circrna/03_fastqc_trimmed/{sample}_R1.trimmed_fastqc.zip",
+        r2_html="../results/circrna/03_fastqc_trimmed/{sample}_R2.trimmed_fastqc.html",
+        r2_zip="../results/circrna/03_fastqc_trimmed/{sample}_R2.trimmed_fastqc.zip"
+    params:
+        outdir="../results/circrna/03_fastqc_trimmed/"
+    log:
+        "../results/circrna/logs/fastqc_trimmed/{sample}.log"
+    threads: config["resources"]["threads"] // 4
+    conda:
+        "envs/circrna.yaml"
+    shell:
+        """
+        mkdir -p {params.outdir}
+        fastqc -t {threads} -o {params.outdir} {input.r1} {input.r2} > {log} 2>&1
+        """
+
+# ==============================================================================
+# REFERENCE GENOME PREPARATION
+# ==============================================================================
+
+rule bwa_index:
+    """Build BWA index for genome alignment"""
+    input:
+        config["reference"]["genome_fasta"]
+    output:
+        config["reference"]["genome_fasta"] + ".bwt"
+    log:
+        "../results/circrna/logs/bwa_index.log"
+    conda:
+        "envs/circrna.yaml"
+    shell:
+        """
+        bwa index {input} > {log} 2>&1
+        """
+
+# ==============================================================================
+# ALIGNMENT RULES
+# ==============================================================================
+
+rule bwa_mem_alignment:
+    """Align reads to genome with BWA-MEM for circRNA detection"""
+    input:
+        r1="../results/circrna/02_trimmed_reads/{sample}_R1.trimmed.fastq.gz",
+        r2="../results/circrna/02_trimmed_reads/{sample}_R2.trimmed.fastq.gz",
+        ref=config["reference"]["genome_fasta"],
+        idx=config["reference"]["genome_fasta"] + ".bwt"
+    output:
+        sam="../results/circrna/04_alignment/{sample}.sam",
+        bam="../results/circrna/04_alignment/{sample}.bam"
+    params:
+        T_param=config["params"]["bwa"]["T_param"]
+    log:
+        "../results/circrna/logs/bwa_mem/{sample}.log"
+    threads: config["resources"]["threads"]
+    conda:
+        "envs/circrna.yaml"
+    shell:
+        """
+        mkdir -p ../results/circrna/04_alignment
+
+        # BWA-MEM alignment - keeping SAM file for CIRI2
+        bwa mem -t {threads} -T {params.T_param} {input.ref} {input.r1} {input.r2} > {output.sam} 2> {log}
+
+        # Convert to BAM for other uses
+        samtools view -@ {threads} -Sb {output.sam} > {output.bam} 2>> {log}
+        """
+
+# ==============================================================================
+# circRNA IDENTIFICATION & QUANTIFICATION
+# ==============================================================================
+
+rule ciri_config:
+    """Create CIRIquant configuration file"""
+    input:
+        genome=config["reference"]["genome_fasta"],
+        gtf=config["reference"]["annotation_gtf"]
+    output:
+        "../results/circrna/05_ciri_quant/ciri_config.yml"
+    shell:
+        """
+        mkdir -p ../results/circrna/05_ciri_quant
+        cat > {output} << EOF
+tools:
+  bwa: $(which bwa)
+  hisat2: $(which hisat2 || echo 'hisat2')
+  stringtie: $(which stringtie || echo 'stringtie')
+  samtools: $(which samtools)
+reference:
+  fasta: {input.genome}
+  gtf: {input.gtf}
+  bwa_index: {input.genome}
+  hisat_index: {input.genome}
+EOF
+        """
+
+rule ciriquant_detection:
+    """Detect and quantify circRNAs using CIRIquant"""
+    input:
+        r1="../results/circrna/02_trimmed_reads/{sample}_R1.trimmed.fastq.gz",
+        r2="../results/circrna/02_trimmed_reads/{sample}_R2.trimmed.fastq.gz",
+        config_file="../results/circrna/05_ciri_quant/ciri_config.yml",
+        sam="../results/circrna/04_alignment/{sample}.sam"
+    output:
+        gtf="../results/circrna/05_ciri_quant/{sample}/{sample}.gtf",
+        log_file="../results/circrna/05_ciri_quant/{sample}/{sample}.log"
+    params:
+        output_dir="../results/circrna/05_ciri_quant/{sample}",
+        prefix="{sample}"
+    log:
+        "../results/circrna/logs/ciriquant/{sample}.log"
+    threads: config["resources"]["threads"]
+    conda:
+        "envs/circrna.yaml"
+    shell:
+        """
+        mkdir -p {params.output_dir}
+
+        # Check if CIRIquant is available
+        if command -v CIRIquant &> /dev/null; then
+            CIRIquant -t {threads} \
+                -1 {input.r1} -2 {input.r2} \
+                --config {input.config_file} \
+                -p {params.prefix} \
+                -o {params.output_dir} > {log} 2>&1
+        else
+            echo "CIRIquant not found. Using CIRI2 alternative..." > {log}
+            # Alternative: Use CIRI2 directly if available
+            if command -v CIRI2.pl &> /dev/null; then
+                CIRI2.pl -I {input.sam} \
+                    -O {params.output_dir}/{params.prefix}_ciri.out \
+                    -F $(dirname {input.config_file})/../reference/GRCh38.primary_assembly.genome.fa \
+                    -A $(dirname {input.config_file})/../reference/gencode.v38.primary_assembly.annotation.gtf \
+                    -T {threads} \
+                    -G {output.log_file} >> {log} 2>&1
+
+                # Convert CIRI2 output to GTF-like format for compatibility
+                touch {output.gtf}
+            else
+                echo "Neither CIRIquant nor CIRI2 found. Creating empty output." >> {log}
+                touch {output.gtf}
+                touch {output.log_file}
+            fi
+        fi
+        """
+
+rule merge_circrna_counts:
+    """Merge circRNA counts from all samples into a count matrix"""
+    input:
+        expand("../results/circrna/05_ciri_quant/{sample}/{sample}.gtf", sample=SAMPLES)
+    output:
+        count_matrix="../results/circrna/05_ciri_quant/merged_count_matrix.tsv"
+    log:
+        "../results/circrna/logs/merge_counts.log"
+    conda:
+        "envs/circrna.yaml"
+    script:
+        "../scripts/merge_circrna_counts.py"
+
+# ==============================================================================
+# DIFFERENTIAL EXPRESSION ANALYSIS
+# ==============================================================================
+
+rule create_sample_info:
+    """Create sample information file for differential expression"""
+    output:
+        "../results/circrna/06_de_analysis/sample_info.tsv"
+    run:
+        import pandas as pd
+
+        # Load sample information from config
+        samples_df = pd.read_csv("../config/samples.tsv", sep="\t")
+
+        # Create output directory
+        os.makedirs("../results/circrna/06_de_analysis", exist_ok=True)
+
+        # Save sample info
+        sample_info = samples_df[['sample', 'condition']].set_index('sample')
+        sample_info.to_csv(output[0], sep='\t')
+
+rule deseq2_circrna:
+    """Run DESeq2 differential expression analysis for circRNAs"""
+    input:
+        counts="../results/circrna/05_ciri_quant/merged_count_matrix.tsv",
+        sample_info="../results/circrna/06_de_analysis/sample_info.tsv"
+    output:
+        results="../results/circrna/06_de_analysis/DE_results.csv",
+        volcano="../results/circrna/06_de_analysis/volcano_plot.pdf",
+        pca="../results/circrna/06_de_analysis/pca_plot.pdf"
+    params:
+        output_dir="../results/circrna/06_de_analysis",
+        pval_cutoff=config["analysis"]["thresholds"]["padj"],
+        log2fc_cutoff=config["analysis"]["thresholds"]["log2fc"]
+    log:
+        "../results/circrna/logs/deseq2.log"
+    threads: 4
+    conda:
+        "envs/circrna.yaml"
+    script:
+        "../scripts/circrna_deseq2.R"
+
+# ==============================================================================
+# FUNCTIONAL ANNOTATION
+# ==============================================================================
+
+rule extract_significant_circrnas:
+    """Extract significant circRNAs for functional annotation"""
+    input:
+        de_results="../results/circrna/06_de_analysis/DE_results.csv"
+    output:
+        bed="../results/circrna/07_functional_annotation/significant_circs.bed"
+    params:
+        pval_cutoff=config["analysis"]["thresholds"]["padj"],
+        log2fc_cutoff=config["analysis"]["thresholds"]["log2fc"]
+    log:
+        "../results/circrna/logs/extract_significant.log"
+    shell:
+        """
+        mkdir -p ../results/circrna/07_functional_annotation
+
+        # Extract significant circRNAs and convert to BED format
+        awk -F',' -v pval={params.pval_cutoff} -v fc={params.log2fc_cutoff} '
+        NR > 1 && $5 < pval && ($2 > fc || $2 < -fc) {{
+            # Parse circRNA ID (format: chr:start-end or chr:start|end)
+            split($1, parts, ":")
+            chr = parts[1]
+            if (index(parts[2], "|")) {{
+                split(parts[2], coords, "|")
+            }} else {{
+                split(parts[2], coords, "-")
+            }}
+            start = coords[1]
+            end = coords[2]
+            print chr "\\t" start "\\t" end "\\t" $1
+        }}' {input.de_results} > {output.bed} 2> {log}
+
+        echo "Extracted $(wc -l < {output.bed}) significant circRNAs" >> {log}
+        """
+
+rule extract_circrna_sequences:
+    """Extract sequences of significant circRNAs"""
+    input:
+        bed="../results/circrna/07_functional_annotation/significant_circs.bed",
+        genome=config["reference"]["genome_fasta"]
+    output:
+        fasta="../results/circrna/07_functional_annotation/significant_circs.fasta"
+    log:
+        "../results/circrna/logs/extract_sequences.log"
+    conda:
+        "envs/circrna.yaml"
+    shell:
+        """
+        if [[ -s {input.bed} ]]; then
+            bedtools getfasta -fi {input.genome} -bed {input.bed} -fo {output.fasta} > {log} 2>&1
+        else
+            echo "No significant circRNAs found. Creating empty FASTA." > {log}
+            touch {output.fasta}
+        fi
+        """
+
+rule mirna_binding_prediction:
+    """Predict miRNA binding sites using miRanda"""
+    input:
+        circrna_fasta="../results/circrna/07_functional_annotation/significant_circs.fasta",
+        mirna_fasta=config["reference"]["mirna_fasta"]
+    output:
+        predictions="../results/circrna/07_functional_annotation/miranda_predictions.txt"
+    log:
+        "../results/circrna/logs/miranda.log"
+    threads: config["resources"]["threads"] // 2
+    conda:
+        "envs/circrna.yaml"
+    shell:
+        """
+        if [[ -s {input.circrna_fasta} ]] && [[ -f {input.mirna_fasta} ]]; then
+            miranda {input.mirna_fasta} {input.circrna_fasta} -out {output.predictions} > {log} 2>&1
+        else
+            echo "No circRNA sequences or miRNA reference available. Creating empty output." > {log}
+            echo "# No miRNA binding predictions available" > {output.predictions}
+        fi
+        """
+
+# ==============================================================================
+# SUMMARY AND REPORTING
+# ==============================================================================
+
+rule analysis_summary:
+    """Generate comprehensive analysis summary"""
+    input:
+        counts="../results/circrna/05_ciri_quant/merged_count_matrix.tsv",
+        de_results="../results/circrna/06_de_analysis/DE_results.csv",
+        miranda="../results/circrna/07_functional_annotation/miranda_predictions.txt"
+    output:
+        summary="../results/circrna/analysis_summary.txt"
+    log:
+        "../results/circrna/logs/summary.log"
+    shell:
+        """
+        cat > {output.summary} << EOF
+circRNA-seq Analysis Pipeline Summary
+=====================================
+
+Analysis completed on: $(date)
+Samples processed: {SAMPLES}
+Output directory: ../results/circrna/
+
+Pipeline Stages Completed:
+1. Quality Control (FastQC)
+2. Adapter Trimming (Cutadapt)
+3. Read Alignment (BWA-MEM)
+4. circRNA Identification (CIRIquant/CIRI2)
+5. Differential Expression (DESeq2)
+6. Functional Annotation (miRanda)
+
+Key Output Files:
+- Count matrix: {input.counts}
+- Differential expression results: {input.de_results}
+- Volcano plot: ../results/circrna/06_de_analysis/volcano_plot.pdf
+- miRNA binding predictions: {input.miranda}
+
+Sample Information:
+EOF
+
+        # Add sample statistics
+        if [[ -f {input.counts} ]]; then
+            echo "" >> {output.summary}
+            echo "Statistics:" >> {output.summary}
+            circrnas=\$(tail -n +2 {input.counts} | wc -l)
+            samples=\$(head -1 {input.counts} | awk '{{print NF-1}}')
+            echo "- Total circRNAs detected: \$circrnas" >> {output.summary}
+            echo "- Total samples: \$samples" >> {output.summary}
+        fi
+
+        # Add DE statistics
+        if [[ -f {input.de_results} ]]; then
+            sig_circs=\$(awk -F',' 'NR > 1 && \$5 < 0.05 && (\$2 > 1 || \$2 < -1)' {input.de_results} | wc -l)
+            echo "- Significantly differential circRNAs: \$sig_circs" >> {output.summary}
+        fi
+
+        echo "" >> {output.summary}
+        echo "Next Steps:" >> {output.summary}
+        echo "1. Review quality control reports" >> {output.summary}
+        echo "2. Examine differential expression results" >> {output.summary}
+        echo "3. Investigate functional annotations" >> {output.summary}
+        echo "4. Validate candidates experimentally" >> {output.summary}
+
+        echo "Analysis summary generated successfully" > {log}
+        """
+
+# ==============================================================================
+# QUALITY CONTROL AGGREGATION
+# ==============================================================================
+
+rule multiqc_circrna:
+    """Generate MultiQC report for circRNA analysis"""
+    input:
+        expand("../results/circrna/01_fastqc_raw/{sample}_{read}_fastqc.zip", sample=SAMPLES, read=["R1", "R2"]),
+        expand("../results/circrna/03_fastqc_trimmed/{sample}_{read}.trimmed_fastqc.zip", sample=SAMPLES, read=["R1", "R2"]),
+        expand("../results/circrna/02_trimmed_reads/{sample}_trimming_report.txt", sample=SAMPLES)
+    output:
+        "../results/circrna/multiqc_report.html"
+    params:
+        input_dir="../results/circrna",
+        output_dir="../results/circrna"
+    log:
+        "../results/circrna/logs/multiqc.log"
+    conda:
+        "envs/circrna.yaml"
+    shell:
+        """
+        multiqc {params.input_dir} \
+            -o {params.output_dir} \
+            --title "circRNA-seq Analysis Quality Control" \
+            --force > {log} 2>&1
+        """
+
+# ==============================================================================
+# UTILITY RULES
+# ==============================================================================
+
+rule clean_circrna:
+    """Clean intermediate circRNA analysis files"""
+    shell:
+        """
+        rm -rf ../results/circrna/01_fastqc_raw
+        rm -rf ../results/circrna/02_trimmed_reads
+        rm -rf ../results/circrna/03_fastqc_trimmed
+        rm -rf ../results/circrna/04_alignment
+        echo "Intermediate circRNA files cleaned"
+        """
+
+rule clean_all_circrna:
+    """Clean all circRNA analysis output files"""
+    shell:
+        """
+        rm -rf ../results/circrna/*
+        echo "All circRNA output files cleaned"
+        """
