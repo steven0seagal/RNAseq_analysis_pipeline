@@ -1,0 +1,1257 @@
+# Nextflow Pipeline Migration Plan
+# RNA-seq Analysis Pipeline - Complete Implementation Strategy
+
+## Executive Summary
+
+This document outlines a comprehensive plan to migrate the existing RNA-seq analysis pipeline from Snakemake to Nextflow. The pipeline currently supports three analysis modes:
+1. Standard RNA-seq differential expression analysis
+2. Circular RNA (circRNA) discovery and quantification
+3. Multimodal cancer genomics (variants, small RNA, integration)
+
+**Target:** Create modular, scalable, and reproducible Nextflow workflows using DSL2 syntax with nf-core best practices.
+
+---
+
+## Table of Contents
+
+1. [Prerequisites and Learning](#phase-0-prerequisites-and-learning)
+2. [Project Setup](#phase-1-project-setup)
+3. [Standard RNA-seq Workflow](#phase-2-standard-rna-seq-workflow)
+4. [circRNA Analysis Workflow](#phase-3-circrna-analysis-workflow)
+5. [Multimodal Analysis Workflow](#phase-4-multimodal-analysis-workflow)
+6. [Configuration and Parameters](#phase-5-configuration-and-parameters)
+7. [Testing and Validation](#phase-6-testing-and-validation)
+8. [Documentation](#phase-7-documentation)
+9. [Deployment and CI/CD](#phase-8-deployment-and-cicd)
+
+---
+
+## PHASE 0: Prerequisites and Learning
+
+### Nextflow Fundamentals
+- [ ] Install Nextflow (version 23.04.0 or later)
+- [ ] Review Nextflow DSL2 syntax and concepts
+- [ ] Study nf-core guidelines and best practices
+- [ ] Understand channels: value channels, queue channels, and operators
+- [ ] Learn process definitions: input, output, when, script blocks
+- [ ] Study workflow composition and sub-workflows
+- [ ] Review module structure and organization
+
+### Reference Materials
+- [ ] Review nf-core/rnaseq pipeline structure
+- [ ] Study nf-core/modules repository
+- [ ] Examine Nextflow patterns documentation
+- [ ] Review container/conda integration strategies
+- [ ] Study configuration scopes and profiles
+
+### Environment Setup
+- [ ] Install Java 11 or later (Nextflow requirement)
+- [ ] Configure Nextflow executor (local, SLURM, AWS, etc.)
+- [ ] Set up Conda/Mamba for process environments
+- [ ] Configure Docker/Singularity for containerization
+- [ ] Test basic Nextflow hello-world pipeline
+
+---
+
+## PHASE 1: Project Setup
+
+### Directory Structure Creation
+```
+nextflow/
+├── main.nf                          # Main workflow entry point
+├── nextflow.config                  # Main configuration file
+├── modules/
+│   ├── local/                       # Custom/pipeline-specific modules
+│   │   ├── circrna/
+│   │   │   ├── ciri_quant.nf
+│   │   │   ├── merge_circrna_counts.nf
+│   │   │   └── mirna_binding.nf
+│   │   ├── multimodal/
+│   │   │   ├── multimodal_integration.nf
+│   │   │   └── variant_summary.nf
+│   │   └── utils/
+│   │       ├── validation.nf
+│   │       └── summary.nf
+│   └── nf-core/                     # Standard nf-core modules
+│       ├── fastqc/
+│       ├── fastp/
+│       ├── star/
+│       ├── featurecounts/
+│       ├── multiqc/
+│       ├── deseq2/
+│       ├── gatk4/
+│       ├── bwa/
+│       └── samtools/
+├── subworkflows/
+│   ├── local/
+│   │   ├── qc_trimming.nf           # QC and trimming sub-workflow
+│   │   ├── alignment_standard.nf    # STAR alignment
+│   │   ├── alignment_circrna.nf     # BWA-MEM for circRNA
+│   │   ├── alignment_2pass.nf       # STAR 2-pass for variants
+│   │   ├── quantification.nf        # featureCounts/Salmon
+│   │   ├── variant_calling.nf       # GATK/Mutect2 workflow
+│   │   ├── circrna_analysis.nf      # Complete circRNA workflow
+│   │   ├── small_rna.nf             # Small RNA/miRNA analysis
+│   │   └── differential_expression.nf
+│   └── nf-core/
+│       └── utils/
+├── workflows/
+│   ├── rnaseq.nf                    # Standard RNA-seq workflow
+│   ├── circrna.nf                   # circRNA workflow
+│   ├── multimodal.nf                # Multimodal workflow
+│   └── integrated.nf                # Combined workflow
+├── bin/                             # Executable scripts
+│   ├── interpret_results.py
+│   ├── interpret_results.R
+│   ├── merge_circrna_counts.py
+│   ├── circrna_deseq2.R
+│   ├── multimodal_integration.R
+│   └── generate_visualizations.py
+├── assets/
+│   ├── schema_input.json            # Input validation schema
+│   ├── schema_output.json
+│   └── multiqc_config.yaml
+├── conf/
+│   ├── base.config                  # Base configuration
+│   ├── modules.config               # Module-specific configs
+│   ├── test.config                  # Test profile
+│   ├── test_circrna.config
+│   ├── test_multimodal.config
+│   └── resources.config             # Resource allocation
+├── lib/                             # Groovy helper functions
+│   ├── WorkflowMain.groovy
+│   ├── WorkflowRnaseq.groovy
+│   └── NfcoreSchema.groovy
+├── docs/
+│   ├── usage.md
+│   ├── output.md
+│   ├── parameters.md
+│   └── troubleshooting.md
+└── tests/
+    ├── test_standard.nf
+    ├── test_circrna.nf
+    └── test_multimodal.nf
+```
+
+### Initial Setup Tasks
+- [ ] Create nextflow/ directory structure
+- [ ] Initialize nextflow.config with basic settings
+- [ ] Set up modules/local/ and modules/nf-core/ directories
+- [ ] Create subworkflows/ structure
+- [ ] Set up workflows/ directory
+- [ ] Initialize bin/ with existing scripts
+- [ ] Create conf/ with profile configurations
+- [ ] Set up lib/ for Groovy helper functions
+- [ ] Create assets/ for schemas and configs
+- [ ] Initialize docs/ directory
+- [ ] Set up tests/ directory
+
+### Configuration Framework
+- [ ] Define base.config with default parameters
+- [ ] Create process resource labels (low, medium, high, max)
+- [ ] Set up executor configurations (local, SLURM, AWS Batch)
+- [ ] Configure container/conda strategies
+- [ ] Define module-specific parameters
+- [ ] Set up test profiles with small datasets
+- [ ] Create production profiles for cluster execution
+
+---
+
+## PHASE 2: Standard RNA-seq Workflow
+
+### 2.1 Quality Control Processes
+
+#### FASTQC_RAW Module
+- [ ] Create modules/nf-core/fastqc/main.nf
+- [ ] Define process inputs: paired FASTQ files
+- [ ] Define process outputs: HTML and ZIP reports
+- [ ] Configure resource requirements (2 CPUs, 4 GB RAM)
+- [ ] Add conda environment: fastqc=0.11.9
+- [ ] Add container directive: biocontainers/fastqc:0.11.9
+- [ ] Implement script block with FastQC command
+- [ ] Test module independently
+
+```nextflow
+// Example structure
+process FASTQC {
+    tag "$meta.id"
+    label 'process_medium'
+
+    conda "bioconda::fastqc=0.11.9"
+    container "biocontainers/fastqc:0.11.9"
+
+    input:
+    tuple val(meta), path(reads)
+
+    output:
+    tuple val(meta), path("*_fastqc.html"), emit: html
+    tuple val(meta), path("*_fastqc.zip") , emit: zip
+    path "versions.yml"                    , emit: versions
+
+    script:
+    """
+    fastqc --threads $task.cpus $reads
+    """
+}
+```
+
+#### FASTP Module
+- [ ] Create modules/nf-core/fastp/main.nf
+- [ ] Define inputs: R1 and R2 FASTQ files
+- [ ] Define outputs: trimmed FASTQ, HTML, JSON reports
+- [ ] Configure parameters: min_len, quality thresholds
+- [ ] Add adapter auto-detection
+- [ ] Implement quality filtering logic
+- [ ] Add version tracking
+- [ ] Test module with sample data
+
+#### FASTQC_TRIMMED Module
+- [ ] Reuse FASTQC module for trimmed reads
+- [ ] Configure separate output directory
+- [ ] Update meta information for tracking
+
+### 2.2 Reference Genome Preparation
+
+#### STAR_GENOMEGENERATE Module
+- [ ] Create modules/nf-core/star/genomegenerate/main.nf
+- [ ] Define inputs: genome FASTA, annotation GTF
+- [ ] Define output: STAR index directory
+- [ ] Configure sjdbOverhang parameter (read_length - 1)
+- [ ] Set memory requirements (32+ GB)
+- [ ] Add conditional execution (only if index doesn't exist)
+- [ ] Implement caching strategy
+- [ ] Test index generation
+
+#### Reference Download Process
+- [ ] Create modules/local/utils/download_reference.nf
+- [ ] Implement GENCODE genome download (GRCh38)
+- [ ] Implement GENCODE annotation download (v38)
+- [ ] Add checksums verification
+- [ ] Implement skip logic if files exist
+- [ ] Add retry logic for download failures
+- [ ] Test download and validation
+
+### 2.3 Alignment Processes
+
+#### STAR_ALIGN Module
+- [ ] Create modules/nf-core/star/align/main.nf
+- [ ] Define inputs: trimmed FASTQ, STAR index
+- [ ] Define outputs: sorted BAM, log files
+- [ ] Configure STAR parameters from config
+- [ ] Set output format: BAM SortedByCoordinate
+- [ ] Configure memory allocation
+- [ ] Add read group information
+- [ ] Implement error handling
+- [ ] Test alignment with sample data
+
+#### SAMTOOLS_INDEX Module
+- [ ] Create modules/nf-core/samtools/index/main.nf
+- [ ] Define input: BAM file
+- [ ] Define output: BAI index file
+- [ ] Set resource requirements (2 CPUs)
+- [ ] Implement indexing command
+- [ ] Test indexing process
+
+### 2.4 Quantification Processes
+
+#### FEATURECOUNTS Module
+- [ ] Create modules/nf-core/subread/featurecounts/main.nf
+- [ ] Define inputs: BAM files (list), GTF annotation
+- [ ] Define outputs: count matrix, summary
+- [ ] Configure strand-specificity parameter
+- [ ] Set feature type (exon) and attribute type (gene_id)
+- [ ] Handle paired-end reads
+- [ ] Implement multi-sample counting
+- [ ] Test quantification accuracy
+
+#### SALMON_INDEX (Alternative)
+- [ ] Create modules/nf-core/salmon/index/main.nf
+- [ ] Define input: transcriptome FASTA
+- [ ] Define output: Salmon index directory
+- [ ] Configure index parameters
+- [ ] Test index creation
+
+#### SALMON_QUANT (Alternative)
+- [ ] Create modules/nf-core/salmon/quant/main.nf
+- [ ] Define inputs: FASTQ files, Salmon index
+- [ ] Define output: quant.sf files
+- [ ] Configure quantification parameters
+- [ ] Add validation mapping option
+- [ ] Test quantification
+
+### 2.5 Quality Control Aggregation
+
+#### MULTIQC Module
+- [ ] Create modules/nf-core/multiqc/main.nf
+- [ ] Define inputs: all QC reports (FastQC, fastp, STAR, featureCounts)
+- [ ] Define output: multiqc_report.html
+- [ ] Configure custom multiqc_config.yaml
+- [ ] Add custom report title
+- [ ] Implement report customization
+- [ ] Test report generation
+
+### 2.6 Differential Expression Analysis
+
+#### DESEQ2_ANALYSIS Process
+- [ ] Create modules/local/deseq2/analysis.nf
+- [ ] Define inputs: count matrix, metadata
+- [ ] Define outputs: DE results, plots (PCA, volcano, heatmap)
+- [ ] Integrate interpret_results.R script
+- [ ] Configure analysis thresholds (padj, log2FC)
+- [ ] Add functional enrichment (GO, KEGG)
+- [ ] Test with example data
+
+#### PYDESEQ2_ANALYSIS Process (Alternative)
+- [ ] Create modules/local/pydeseq2/analysis.nf
+- [ ] Define inputs: count matrix, metadata
+- [ ] Define outputs: DE results, plots
+- [ ] Integrate interpret_results.py script
+- [ ] Configure Python environment
+- [ ] Test Python-based analysis
+
+### 2.7 Standard RNA-seq Sub-workflows
+
+#### QC_TRIMMING Subworkflow
+- [ ] Create subworkflows/local/qc_trimming.nf
+- [ ] Compose: FASTQC_RAW → FASTP → FASTQC_TRIMMED
+- [ ] Define workflow inputs and outputs
+- [ ] Add channel operators for data flow
+- [ ] Test subworkflow independently
+
+#### ALIGNMENT_QUANTIFICATION Subworkflow
+- [ ] Create subworkflows/local/alignment_standard.nf
+- [ ] Compose: STAR_ALIGN → SAMTOOLS_INDEX → FEATURECOUNTS
+- [ ] Handle multiple samples with channel operators
+- [ ] Collect all BAMs for featureCounts
+- [ ] Test subworkflow
+
+#### DIFFERENTIAL_EXPRESSION Subworkflow
+- [ ] Create subworkflows/local/differential_expression.nf
+- [ ] Include DESEQ2_ANALYSIS or PYDESEQ2_ANALYSIS
+- [ ] Add conditional execution based on analysis_tool parameter
+- [ ] Test both R and Python analysis paths
+
+### 2.8 Main Standard RNA-seq Workflow
+- [ ] Create workflows/rnaseq.nf
+- [ ] Import all required modules and subworkflows
+- [ ] Define workflow parameters
+- [ ] Create input channel from samplesheet
+- [ ] Compose complete workflow:
+  - QC_TRIMMING
+  - Reference preparation (STAR_GENOMEGENERATE)
+  - ALIGNMENT_QUANTIFICATION
+  - MULTIQC
+  - DIFFERENTIAL_EXPRESSION
+- [ ] Add workflow output organization
+- [ ] Implement workflow completion handler
+- [ ] Add workflow summary report
+- [ ] Test complete standard RNA-seq workflow
+
+---
+
+## PHASE 3: circRNA Analysis Workflow
+
+### 3.1 circRNA-specific Quality Control
+
+#### QC with Different Parameters
+- [ ] Reuse FASTQC module with circRNA-specific tags
+- [ ] Configure CUTADAPT module for circRNA
+- [ ] Set min_read_length to 35bp (longer for junction spanning)
+- [ ] Configure circRNA-specific adapter sequences
+- [ ] Test QC processes
+
+### 3.2 BWA Alignment for circRNA
+
+#### BWA_INDEX Module
+- [ ] Create modules/nf-core/bwa/index/main.nf
+- [ ] Define input: genome FASTA
+- [ ] Define output: BWA index files (.amb, .ann, .bwt, .pac, .sa)
+- [ ] Implement indexing command
+- [ ] Add conditional execution
+- [ ] Test index creation
+
+#### BWA_MEM Module
+- [ ] Create modules/nf-core/bwa/mem/main.nf
+- [ ] Define inputs: trimmed FASTQ, BWA index
+- [ ] Define outputs: SAM and BAM files
+- [ ] Configure BWA-MEM parameters for circRNA (T parameter)
+- [ ] Keep SAM output for CIRI2 compatibility
+- [ ] Generate sorted BAM for downstream analysis
+- [ ] Test alignment with circRNA data
+
+### 3.3 circRNA Detection and Quantification
+
+#### CIRI_CONFIG Process
+- [ ] Create modules/local/circrna/ciri_config.nf
+- [ ] Define inputs: genome FASTA, GTF annotation
+- [ ] Generate CIRIquant configuration YAML
+- [ ] Include tool paths (bwa, samtools, etc.)
+- [ ] Test config generation
+
+#### CIRIQUANT Process
+- [ ] Create modules/local/circrna/ciri_quant.nf
+- [ ] Define inputs: trimmed FASTQ, SAM file, config
+- [ ] Define outputs: circRNA GTF, quantification files
+- [ ] Configure CIRIquant parameters
+- [ ] Add fallback to CIRI2 if CIRIquant unavailable
+- [ ] Implement error handling
+- [ ] Test circRNA detection
+
+#### CIRI2 Process (Alternative)
+- [ ] Create modules/local/circrna/ciri2.nf
+- [ ] Define inputs: SAM file, reference files
+- [ ] Define output: CIRI2 detection results
+- [ ] Configure detection parameters
+- [ ] Test CIRI2 detection
+
+#### MERGE_CIRCRNA_COUNTS Process
+- [ ] Create modules/local/circrna/merge_counts.nf
+- [ ] Define inputs: all sample circRNA quantifications
+- [ ] Define output: merged count matrix
+- [ ] Integrate merge_circrna_counts.py script
+- [ ] Handle missing values
+- [ ] Test count merging
+
+### 3.4 circRNA Differential Expression
+
+#### DESEQ2_CIRCRNA Process
+- [ ] Create modules/local/circrna/deseq2_circrna.nf
+- [ ] Define inputs: circRNA count matrix, sample info
+- [ ] Define outputs: DE results, plots (volcano, PCA)
+- [ ] Integrate circrna_deseq2.R script
+- [ ] Configure statistical thresholds
+- [ ] Test differential expression
+
+### 3.5 Functional Annotation
+
+#### EXTRACT_SIGNIFICANT_CIRCRNAS Process
+- [ ] Create modules/local/circrna/extract_significant.nf
+- [ ] Define input: DE results
+- [ ] Define output: BED file of significant circRNAs
+- [ ] Parse circRNA IDs to coordinates
+- [ ] Apply significance filters
+- [ ] Test extraction logic
+
+#### BEDTOOLS_GETFASTA Process
+- [ ] Create modules/nf-core/bedtools/getfasta/main.nf
+- [ ] Define inputs: BED file, genome FASTA
+- [ ] Define output: circRNA sequences FASTA
+- [ ] Implement sequence extraction
+- [ ] Test with circRNA coordinates
+
+#### MIRANDA_PREDICTION Process
+- [ ] Create modules/local/circrna/miranda_prediction.nf
+- [ ] Define inputs: circRNA FASTA, miRNA reference
+- [ ] Define output: miRNA binding predictions
+- [ ] Configure miRanda parameters
+- [ ] Handle empty inputs gracefully
+- [ ] Test miRNA binding prediction
+
+### 3.6 circRNA Sub-workflows
+
+#### CIRCRNA_ALIGNMENT Subworkflow
+- [ ] Create subworkflows/local/alignment_circrna.nf
+- [ ] Compose: BWA_INDEX → BWA_MEM
+- [ ] Handle SAM and BAM outputs
+- [ ] Test alignment subworkflow
+
+#### CIRCRNA_DETECTION Subworkflow
+- [ ] Create subworkflows/local/circrna_detection.nf
+- [ ] Compose: CIRI_CONFIG → CIRIQUANT → MERGE_CIRCRNA_COUNTS
+- [ ] Handle multiple samples
+- [ ] Test detection subworkflow
+
+#### CIRCRNA_ANNOTATION Subworkflow
+- [ ] Create subworkflows/local/circrna_annotation.nf
+- [ ] Compose: EXTRACT_SIGNIFICANT → BEDTOOLS_GETFASTA → MIRANDA
+- [ ] Add conditional execution based on significant circRNAs
+- [ ] Test annotation subworkflow
+
+### 3.7 Main circRNA Workflow
+- [ ] Create workflows/circrna.nf
+- [ ] Import all circRNA modules and subworkflows
+- [ ] Define workflow parameters
+- [ ] Create input channel from samplesheet
+- [ ] Compose complete workflow:
+  - QC_TRIMMING (with circRNA parameters)
+  - CIRCRNA_ALIGNMENT
+  - CIRCRNA_DETECTION
+  - DESEQ2_CIRCRNA
+  - CIRCRNA_ANNOTATION
+  - MULTIQC
+- [ ] Add workflow summary
+- [ ] Test complete circRNA workflow
+
+---
+
+## PHASE 4: Multimodal Analysis Workflow
+
+### 4.1 2-Pass STAR Alignment
+
+#### STAR_1PASS_ALIGNMENT Process
+- [ ] Create modules/local/multimodal/star_1pass.nf
+- [ ] Configure 1st pass alignment
+- [ ] Output splice junction files
+- [ ] Set output to junction-only (no BAM)
+- [ ] Test 1st pass alignment
+
+#### COLLECT_SPLICE_JUNCTIONS Process
+- [ ] Create modules/local/multimodal/collect_sj.nf
+- [ ] Filter splice junctions (min support ≥3)
+- [ ] Aggregate junctions from all samples
+- [ ] Test junction collection
+
+#### STAR_2PASS_INDEX Process
+- [ ] Create modules/local/multimodal/star_2pass_index.nf
+- [ ] Build 2nd pass index with discovered junctions
+- [ ] Configure increased sjdb insertion limit
+- [ ] Test 2nd pass index
+
+#### STAR_2PASS_ALIGNMENT Process
+- [ ] Create modules/local/multimodal/star_2pass_align.nf
+- [ ] Configure 2nd pass alignment with all junctions
+- [ ] Output sorted BAM with extended attributes
+- [ ] Enable transcript quantification
+- [ ] Test 2nd pass alignment
+
+### 4.2 GATK BAM Processing
+
+#### GATK_ADDORREPLACEREADGROUPS Process
+- [ ] Create modules/nf-core/gatk4/addorreplacereadgroups/main.nf
+- [ ] Define inputs: aligned BAM
+- [ ] Define output: BAM with read groups
+- [ ] Configure read group information (RGID, RGLB, RGPL, etc.)
+- [ ] Set validation stringency
+- [ ] Test read group addition
+
+#### GATK_MARKDUPLICATES Process
+- [ ] Create modules/nf-core/gatk4/markduplicates/main.nf
+- [ ] Define inputs: BAM with read groups
+- [ ] Define outputs: deduplicated BAM, metrics
+- [ ] Configure optical duplicate distance
+- [ ] Test duplicate marking
+
+#### GATK_SPLITNCIGARREADS Process
+- [ ] Create modules/nf-core/gatk4/splitncigarreads/main.nf
+- [ ] Define inputs: deduplicated BAM, reference
+- [ ] Define output: split BAM
+- [ ] Configure for RNA-seq data (skip mapping quality transform)
+- [ ] Handle N cigar operations
+- [ ] Test splitting
+
+#### GATK_BASERECALIBRATOR Process
+- [ ] Create modules/nf-core/gatk4/baserecalibrator/main.nf
+- [ ] Define inputs: split BAM, reference, known sites (dbSNP)
+- [ ] Define output: recalibration table
+- [ ] Configure for RNA-seq
+- [ ] Test recalibration
+
+#### GATK_APPLYBQSR Process
+- [ ] Create modules/nf-core/gatk4/applybqsr/main.nf
+- [ ] Define inputs: split BAM, reference, recal table
+- [ ] Define output: BQSR-processed BAM
+- [ ] Test BQSR application
+
+### 4.3 Somatic Variant Calling
+
+#### GATK_MUTECT2_PON Process
+- [ ] Create modules/local/multimodal/create_pon.nf
+- [ ] Run Mutect2 on normal samples
+- [ ] Create Panel of Normals (PON)
+- [ ] Configure PON parameters
+- [ ] Test PON creation
+
+#### GATK_MUTECT2 Process
+- [ ] Create modules/nf-core/gatk4/mutect2/main.nf
+- [ ] Define inputs: tumor BAM, normal BAM, reference, PON, dbSNP
+- [ ] Define outputs: raw VCF, stats, f1r2 counts
+- [ ] Configure Mutect2 for RNA-seq
+- [ ] Disable problematic filters
+- [ ] Test variant calling
+
+#### GATK_LEARNREADORIENTATIONMODEL Process
+- [ ] Create modules/nf-core/gatk4/learnreadorientationmodel/main.nf
+- [ ] Define input: f1r2 tar.gz
+- [ ] Define output: orientation model
+- [ ] Test model learning
+
+#### GATK_GETPILEUPSUMMARIES Process
+- [ ] Create modules/nf-core/gatk4/getpileupsummaries/main.nf
+- [ ] Define inputs: BAM, variant sites
+- [ ] Define output: pileup table
+- [ ] Test pileup generation
+
+#### GATK_CALCULATECONTAMINATION Process
+- [ ] Create modules/nf-core/gatk4/calculatecontamination/main.nf
+- [ ] Define inputs: tumor pileup, normal pileup
+- [ ] Define outputs: contamination table, segments
+- [ ] Test contamination calculation
+
+#### GATK_FILTERMUTECTCALLS Process
+- [ ] Create modules/nf-core/gatk4/filtermutectcalls/main.nf
+- [ ] Define inputs: raw VCF, stats, contamination, segments, orientation model
+- [ ] Define output: filtered VCF
+- [ ] Configure filtering parameters
+- [ ] Test filtering
+
+#### GATK_SELECTVARIANTS Process
+- [ ] Create modules/nf-core/gatk4/selectvariants/main.nf
+- [ ] Filter for PASS variants only
+- [ ] Separate SNVs and indels
+- [ ] Test variant selection
+
+#### VARIANT_SUMMARY Process
+- [ ] Create modules/local/multimodal/variant_summary.nf
+- [ ] Summarize variant counts per sample
+- [ ] Generate statistics table
+- [ ] Test summary generation
+
+### 4.4 Small RNA Analysis
+
+#### CUTADAPT_SMALLRNA Process
+- [ ] Create modules/local/multimodal/cutadapt_smallrna.nf
+- [ ] Configure for small RNA (18-25bp range)
+- [ ] Set small RNA adapters
+- [ ] Test small RNA trimming
+
+#### MIRDEEP2 Process
+- [ ] Create modules/local/multimodal/mirdeep2.nf
+- [ ] Define inputs: trimmed small RNA reads
+- [ ] Define outputs: miRNA quantification
+- [ ] Integrate small_rna_analysis.sh script
+- [ ] Test miRNA detection
+
+#### MIRNA_DIFFERENTIAL_EXPRESSION Process
+- [ ] Create modules/local/multimodal/mirna_de.nf
+- [ ] Define inputs: miRNA counts from all samples
+- [ ] Define output: differential miRNA results
+- [ ] Test miRNA DE analysis
+
+### 4.5 Multimodal Integration
+
+#### MULTIMODAL_INTEGRATION Process
+- [ ] Create modules/local/multimodal/integration.nf
+- [ ] Define inputs: mRNA DE results, variant summary, miRNA results
+- [ ] Define outputs: integrated analysis tables, plots
+- [ ] Integrate multimodal_integration.R script
+- [ ] Generate correlation analyses
+- [ ] Create network visualizations
+- [ ] Test integration
+
+### 4.6 Multimodal Sub-workflows
+
+#### ALIGNMENT_2PASS Subworkflow
+- [ ] Create subworkflows/local/alignment_2pass.nf
+- [ ] Compose 2-pass STAR workflow
+- [ ] Test subworkflow
+
+#### BAM_PROCESSING Subworkflow
+- [ ] Create subworkflows/local/bam_processing.nf
+- [ ] Compose GATK processing steps
+- [ ] Test subworkflow
+
+#### VARIANT_CALLING Subworkflow
+- [ ] Create subworkflows/local/variant_calling.nf
+- [ ] Compose complete Mutect2 workflow
+- [ ] Test subworkflow
+
+#### SMALL_RNA Subworkflow
+- [ ] Create subworkflows/local/small_rna.nf
+- [ ] Compose small RNA analysis
+- [ ] Test subworkflow
+
+### 4.7 Main Multimodal Workflow
+- [ ] Create workflows/multimodal.nf
+- [ ] Import all multimodal modules and subworkflows
+- [ ] Define workflow parameters
+- [ ] Separate tumor and normal samples
+- [ ] Compose complete workflow:
+  - QC_TRIMMING
+  - ALIGNMENT_2PASS
+  - BAM_PROCESSING
+  - VARIANT_CALLING
+  - Quantification (featureCounts or Salmon)
+  - DIFFERENTIAL_EXPRESSION
+  - SMALL_RNA
+  - MULTIMODAL_INTEGRATION
+  - MULTIQC
+- [ ] Add workflow summary
+- [ ] Test complete multimodal workflow
+
+---
+
+## PHASE 5: Configuration and Parameters
+
+### 5.1 Main Configuration File (nextflow.config)
+
+#### Basic Settings
+- [ ] Define manifest (name, description, version, author)
+- [ ] Set default parameters
+- [ ] Configure work directory
+- [ ] Set resume option
+- [ ] Configure report and timeline generation
+- [ ] Add DAG visualization
+- [ ] Set Nextflow version requirement
+
+```groovy
+manifest {
+    name            = 'RNAseq_analysis_pipeline'
+    author          = 'Your Name'
+    homePage        = 'https://github.com/username/RNAseq_analysis_pipeline'
+    description     = 'Comprehensive RNA-seq analysis pipeline'
+    mainScript      = 'main.nf'
+    nextflowVersion = '>=23.04.0'
+    version         = '2.0.0'
+}
+```
+
+#### Default Parameters
+- [ ] Define input parameters (samplesheet, references, etc.)
+- [ ] Set analysis mode parameter (rnaseq, circrna, multimodal)
+- [ ] Configure output directory
+- [ ] Set resource defaults (threads, memory)
+- [ ] Define quality control parameters
+- [ ] Set alignment parameters
+- [ ] Configure quantification options
+- [ ] Define analysis thresholds
+- [ ] Add skip options for optional steps
+
+#### Process Configuration
+- [ ] Define process labels (low, medium, high, max)
+- [ ] Configure resource requirements per label
+- [ ] Set error strategies (retry, ignore, terminate)
+- [ ] Configure max retries
+- [ ] Set time limits
+- [ ] Configure cache settings
+
+#### Executor Configuration
+- [ ] Configure local executor
+- [ ] Set up SLURM profile
+- [ ] Configure AWS Batch profile
+- [ ] Set up SGE profile
+- [ ] Configure PBS/Torque profile
+- [ ] Add custom executor configurations
+
+#### Container Configuration
+- [ ] Enable Singularity support
+- [ ] Enable Docker support
+- [ ] Configure container cache directory
+- [ ] Set up conda environment caching
+- [ ] Configure automatic container pull
+- [ ] Add container registry settings
+
+### 5.2 Module-Specific Configuration (conf/modules.config)
+
+- [ ] Configure FastQC parameters
+- [ ] Set fastp trimming parameters
+- [ ] Configure STAR alignment parameters
+- [ ] Set featureCounts parameters
+- [ ] Configure Salmon parameters
+- [ ] Set BWA parameters for circRNA
+- [ ] Configure CIRIquant parameters
+- [ ] Set GATK parameters
+- [ ] Configure Mutect2 parameters
+- [ ] Set DESeq2 thresholds
+- [ ] Configure MultiQC settings
+
+### 5.3 Profile Configurations
+
+#### Test Profile (conf/test.config)
+- [ ] Define small test dataset paths
+- [ ] Set reduced resource requirements
+- [ ] Configure quick test parameters
+- [ ] Add test samplesheet
+- [ ] Test standard RNA-seq pipeline
+
+#### Test circRNA Profile (conf/test_circrna.config)
+- [ ] Define circRNA test dataset
+- [ ] Configure test parameters
+- [ ] Add test samplesheet
+- [ ] Test circRNA pipeline
+
+#### Test Multimodal Profile (conf/test_multimodal.config)
+- [ ] Define multimodal test dataset
+- [ ] Configure test parameters
+- [ ] Add test samplesheet
+- [ ] Test multimodal pipeline
+
+#### Production Profiles
+- [ ] Create SLURM profile (conf/slurm.config)
+- [ ] Create AWS profile (conf/aws.config)
+- [ ] Create Singularity profile (conf/singularity.config)
+- [ ] Create Docker profile (conf/docker.config)
+- [ ] Test each profile
+
+### 5.4 Input Validation Schema (assets/schema_input.json)
+
+- [ ] Define samplesheet JSON schema
+- [ ] Add required fields validation
+- [ ] Set field type constraints
+- [ ] Add pattern matching for sample names
+- [ ] Define file path validation
+- [ ] Add metadata field validation
+- [ ] Implement schema validation in workflow
+- [ ] Test schema validation with valid/invalid inputs
+
+### 5.5 Parameter Schema (nextflow_schema.json)
+
+- [ ] Define all pipeline parameters
+- [ ] Add parameter descriptions
+- [ ] Set parameter types and defaults
+- [ ] Define parameter groups
+- [ ] Add parameter dependencies
+- [ ] Create parameter validation rules
+- [ ] Test parameter validation
+
+---
+
+## PHASE 6: Testing and Validation
+
+### 6.1 Unit Testing
+
+#### Module Tests
+- [ ] Create test for each module in modules/
+- [ ] Use nf-core modules test framework
+- [ ] Provide test input data
+- [ ] Define expected outputs
+- [ ] Run module tests with pytest-workflow
+- [ ] Achieve >90% module test coverage
+
+#### Subworkflow Tests
+- [ ] Create tests for each subworkflow
+- [ ] Provide test data for subworkflows
+- [ ] Verify subworkflow outputs
+- [ ] Test error handling
+- [ ] Run subworkflow tests
+
+### 6.2 Integration Testing
+
+#### Standard RNA-seq Integration Test
+- [ ] Create test dataset (3 cancer, 3 healthy samples, subsampled)
+- [ ] Run complete standard workflow
+- [ ] Verify all outputs generated
+- [ ] Check output file formats
+- [ ] Validate DE results
+- [ ] Compare with Snakemake results
+- [ ] Benchmark execution time
+
+#### circRNA Integration Test
+- [ ] Create circRNA test dataset
+- [ ] Run complete circRNA workflow
+- [ ] Verify circRNA detection outputs
+- [ ] Check DE results
+- [ ] Validate functional annotations
+- [ ] Compare with Snakemake results
+- [ ] Benchmark execution time
+
+#### Multimodal Integration Test
+- [ ] Create multimodal test dataset
+- [ ] Run complete multimodal workflow
+- [ ] Verify all analysis components
+- [ ] Check variant calling results
+- [ ] Validate integration outputs
+- [ ] Compare with Snakemake results
+- [ ] Benchmark execution time
+
+### 6.3 Regression Testing
+
+- [ ] Define regression test suite
+- [ ] Run tests on each commit
+- [ ] Compare outputs with reference results
+- [ ] Track performance metrics
+- [ ] Monitor resource usage
+- [ ] Set up continuous testing
+
+### 6.4 Performance Testing
+
+#### Scalability Tests
+- [ ] Test with increasing sample sizes (6, 12, 24, 48 samples)
+- [ ] Measure execution time vs sample count
+- [ ] Monitor memory usage
+- [ ] Test parallelization efficiency
+- [ ] Evaluate cache effectiveness
+
+#### Resource Optimization
+- [ ] Profile CPU usage per process
+- [ ] Monitor memory consumption
+- [ ] Optimize resource allocations
+- [ ] Test on different executors
+- [ ] Benchmark against Snakemake version
+
+### 6.5 Validation Against Snakemake
+
+#### Output Comparison
+- [ ] Run both pipelines on same dataset
+- [ ] Compare count matrices (should be identical)
+- [ ] Compare DE results (statistical tests)
+- [ ] Compare QC reports
+- [ ] Compare circRNA detection results
+- [ ] Compare variant calls
+- [ ] Document any differences
+
+#### Scientific Validation
+- [ ] Validate with known positive controls
+- [ ] Check reproducibility across runs
+- [ ] Verify biological interpretation
+- [ ] Compare with published results
+- [ ] Get feedback from bioinformaticians
+
+---
+
+## PHASE 7: Documentation
+
+### 7.1 User Documentation
+
+#### Usage Documentation (docs/usage.md)
+- [ ] Write installation instructions
+- [ ] Document system requirements
+- [ ] Explain input preparation (samplesheet format)
+- [ ] Provide usage examples for each workflow mode
+- [ ] Document parameter descriptions
+- [ ] Add troubleshooting section
+- [ ] Include FAQ
+- [ ] Add example commands
+
+#### Output Documentation (docs/output.md)
+- [ ] Document output directory structure
+- [ ] Describe all output files
+- [ ] Explain QC report interpretation
+- [ ] Document DE results format
+- [ ] Describe circRNA output files
+- [ ] Explain variant calling outputs
+- [ ] Add example plots with interpretation
+
+#### Parameters Documentation (docs/parameters.md)
+- [ ] List all available parameters
+- [ ] Provide parameter descriptions
+- [ ] Show default values
+- [ ] Explain parameter effects
+- [ ] Add parameter grouping
+- [ ] Include usage examples
+
+### 7.2 Developer Documentation
+
+#### Architecture Documentation
+- [ ] Document overall workflow structure
+- [ ] Explain module organization
+- [ ] Describe subworkflow composition
+- [ ] Document channel flow
+- [ ] Explain configuration structure
+- [ ] Add architecture diagrams
+
+#### Module Development Guide
+- [ ] Explain module structure
+- [ ] Document naming conventions
+- [ ] Provide module template
+- [ ] Explain input/output specifications
+- [ ] Document testing requirements
+- [ ] Add contribution guidelines
+
+#### Adding New Features
+- [ ] Document how to add new modules
+- [ ] Explain how to create subworkflows
+- [ ] Document how to add parameters
+- [ ] Explain testing new features
+- [ ] Add code review checklist
+
+### 7.3 Code Documentation
+
+#### Inline Documentation
+- [ ] Add comments to complex logic
+- [ ] Document all process blocks
+- [ ] Explain channel transformations
+- [ ] Document helper functions
+- [ ] Add parameter explanations
+
+#### README Updates
+- [ ] Update main README.md with Nextflow info
+- [ ] Add Nextflow-specific quick start
+- [ ] Update usage examples
+- [ ] Add Nextflow badges
+- [ ] Update citation information
+
+---
+
+## PHASE 8: Deployment and CI/CD
+
+### 8.1 Continuous Integration
+
+#### GitHub Actions Workflow
+- [ ] Create .github/workflows/ci.yml
+- [ ] Set up Nextflow installation
+- [ ] Configure test data download
+- [ ] Run linting (nf-core lint)
+- [ ] Run unit tests
+- [ ] Run integration tests
+- [ ] Generate test reports
+- [ ] Upload artifacts
+
+#### Linting and Code Quality
+- [ ] Set up nf-core lint
+- [ ] Configure linting rules
+- [ ] Run EditorConfig checks
+- [ ] Validate JSON schemas
+- [ ] Check for common issues
+- [ ] Enforce code style
+
+### 8.2 Release Management
+
+#### Version Control
+- [ ] Set up semantic versioning
+- [ ] Create CHANGELOG.md
+- [ ] Tag releases
+- [ ] Document breaking changes
+- [ ] Add migration guides
+
+#### Release Workflow
+- [ ] Create release checklist
+- [ ] Run full test suite before release
+- [ ] Update version numbers
+- [ ] Update documentation
+- [ ] Create GitHub release
+- [ ] Announce release
+
+### 8.3 Container Registry
+
+#### Docker Images
+- [ ] Build Docker images for all processes
+- [ ] Push images to Docker Hub or GHCR
+- [ ] Tag images with version
+- [ ] Set up automated builds
+- [ ] Test container pulls
+
+#### Singularity Images
+- [ ] Convert Docker images to Singularity
+- [ ] Upload to Singularity Hub or library
+- [ ] Test Singularity execution
+- [ ] Document container usage
+
+### 8.4 nf-core Integration (Optional)
+
+#### nf-core Compliance
+- [ ] Follow nf-core template structure
+- [ ] Use nf-core modules where available
+- [ ] Implement nf-core utils
+- [ ] Add nf-core schema validation
+- [ ] Pass nf-core lint checks
+
+#### Submission to nf-core
+- [ ] Review nf-core contribution guidelines
+- [ ] Prepare pipeline for submission
+- [ ] Submit pull request to nf-core
+- [ ] Address review comments
+- [ ] Maintain nf-core pipeline
+
+---
+
+## Main Entry Point (main.nf)
+
+### Main Workflow Structure
+- [ ] Create main.nf entry point
+- [ ] Import all workflow modules
+- [ ] Parse and validate parameters
+- [ ] Validate input samplesheet
+- [ ] Route to appropriate workflow based on mode parameter:
+  - `params.mode == 'rnaseq'` → workflows/rnaseq.nf
+  - `params.mode == 'circrna'` → workflows/circrna.nf
+  - `params.mode == 'multimodal'` → workflows/multimodal.nf
+  - `params.mode == 'integrated'` → workflows/integrated.nf (all three)
+- [ ] Implement workflow completion handler
+- [ ] Generate execution summary
+- [ ] Send completion email (if configured)
+- [ ] Clean up work directory (if configured)
+
+```nextflow
+#!/usr/bin/env nextflow
+
+nextflow.enable.dsl = 2
+
+// Include workflows
+include { RNASEQ       } from './workflows/rnaseq'
+include { CIRCRNA      } from './workflows/circrna'
+include { MULTIMODAL   } from './workflows/multimodal'
+include { INTEGRATED   } from './workflows/integrated'
+
+// Main workflow
+workflow {
+    // Validate inputs
+    validateInputs()
+
+    // Route to appropriate workflow
+    if (params.mode == 'rnaseq') {
+        RNASEQ()
+    } else if (params.mode == 'circrna') {
+        CIRCRNA()
+    } else if (params.mode == 'multimodal') {
+        MULTIMODAL()
+    } else if (params.mode == 'integrated') {
+        INTEGRATED()
+    } else {
+        error "Invalid mode: ${params.mode}. Must be 'rnaseq', 'circrna', 'multimodal', or 'integrated'"
+    }
+}
+
+workflow.onComplete {
+    log.info "Pipeline completed at: ${workflow.complete}"
+    log.info "Execution status: ${workflow.success ? 'SUCCESS' : 'FAILED'}"
+    log.info "Execution duration: ${workflow.duration}"
+}
+```
+
+---
+
+## Migration from Snakemake: Key Differences
+
+### Syntax Differences
+- [ ] Understand rule → process conversion
+- [ ] Learn channel-based data flow vs file-based
+- [ ] Convert wildcards to process parameters
+- [ ] Adapt input/output declarations
+- [ ] Transform conditional execution logic
+
+### Configuration Differences
+- [ ] Convert config.yaml to nextflow.config
+- [ ] Map Snakemake params to Nextflow params
+- [ ] Adapt resource directives
+- [ ] Convert conda environments
+- [ ] Map log directives
+
+### Workflow Composition Differences
+- [ ] Convert Snakemake rules to Nextflow processes
+- [ ] Transform expand() to channel operators
+- [ ] Convert input functions to channel transformations
+- [ ] Adapt collect() operations
+- [ ] Transform rule dependencies to channel flow
+
+### Execution Differences
+- [ ] Understand work directory structure
+- [ ] Learn resume mechanism
+- [ ] Adapt cluster execution
+- [ ] Convert resource management
+- [ ] Transform caching strategy
+
+---
+
+## Expected Outcomes
+
+### Functional Requirements
+- [ ] All three analysis modes functional
+- [ ] Identical scientific results to Snakemake version
+- [ ] Proper error handling and recovery
+- [ ] Reproducible results with -resume
+- [ ] Scalable execution across sample sizes
+- [ ] Multi-executor support
+
+### Performance Requirements
+- [ ] ≤10% performance difference vs Snakemake
+- [ ] Efficient parallelization
+- [ ] Optimal resource utilization
+- [ ] Fast resume from checkpoints
+- [ ] Minimal disk I/O overhead
+
+### Quality Requirements
+- [ ] Pass all test suites
+- [ ] Meet nf-core standards (if applicable)
+- [ ] Comprehensive documentation
+- [ ] Clean, maintainable code
+- [ ] Version-controlled with CI/CD
+
+---
+
+## Timeline Estimates
+
+- **Phase 0 (Prerequisites):** 3-5 days
+- **Phase 1 (Project Setup):** 2-3 days
+- **Phase 2 (Standard RNA-seq):** 7-10 days
+- **Phase 3 (circRNA):** 5-7 days
+- **Phase 4 (Multimodal):** 10-14 days
+- **Phase 5 (Configuration):** 3-4 days
+- **Phase 6 (Testing):** 5-7 days
+- **Phase 7 (Documentation):** 4-5 days
+- **Phase 8 (Deployment):** 2-3 days
+
+**Total Estimated Time:** 6-9 weeks (depending on experience and complexity)
+
+---
+
+## Resources and References
+
+### Nextflow Resources
+- Nextflow documentation: https://www.nextflow.io/docs/latest/index.html
+- Nextflow patterns: https://nextflow-io.github.io/patterns/
+- Nextflow training: https://training.nextflow.io/
+
+### nf-core Resources
+- nf-core website: https://nf-co.re/
+- nf-core tools: https://nf-co.re/tools
+- nf-core modules: https://nf-co.re/modules
+- nf-core pipelines: https://nf-co.re/pipelines
+
+### Reference Pipelines
+- nf-core/rnaseq: https://nf-co.re/rnaseq
+- nf-core/circrna: https://nf-co.re/circrna (if available)
+- nf-core/sarek: https://nf-co.re/sarek (for variant calling)
+
+---
+
+## Notes and Considerations
+
+### Design Decisions
+- Use DSL2 syntax exclusively (modern Nextflow)
+- Follow nf-core module structure for reusability
+- Implement modular design for easy maintenance
+- Support both conda and container execution
+- Enable flexible workflow composition
+
+### Migration Strategy
+- Incremental migration: one workflow at a time
+- Maintain Snakemake version until Nextflow is validated
+- Run parallel validation throughout development
+- Ensure backward compatibility of output formats
+- Document all changes from Snakemake version
+
+### Quality Assurance
+- Test each module independently
+- Validate subworkflows before integration
+- Run full integration tests
+- Compare results with Snakemake version
+- Get user feedback before deprecating Snakemake
+
+### Future Enhancements
+- Add support for single-cell RNA-seq
+- Implement isoform-level quantification
+- Add spatial transcriptomics analysis
+- Integrate additional variant callers
+- Add proteomics integration
+- Implement cloud-native execution (AWS, Google Cloud, Azure)
+
+---
+
+## Progress Tracking
+
+### Overall Progress
+- [ ] Phase 0: Prerequisites and Learning (0/5 sections)
+- [ ] Phase 1: Project Setup (0/7 sections)
+- [ ] Phase 2: Standard RNA-seq (0/8 sections)
+- [ ] Phase 3: circRNA Analysis (0/7 sections)
+- [ ] Phase 4: Multimodal Analysis (0/7 sections)
+- [ ] Phase 5: Configuration (0/5 sections)
+- [ ] Phase 6: Testing (0/5 sections)
+- [ ] Phase 7: Documentation (0/3 sections)
+- [ ] Phase 8: Deployment (0/4 sections)
+
+**Total Completion: 0% (0/51 sections completed)**
+
+---
+
+## Revision History
+
+| Version | Date       | Author | Changes |
+|---------|------------|--------|---------|
+| 1.0     | 2025-11-02 | Initial | Created comprehensive Nextflow migration plan |
+
+---
+
+**END OF PLAN**
+
+This plan will be updated as implementation progresses. Check off items as they are completed, and update the progress tracking section accordingly.

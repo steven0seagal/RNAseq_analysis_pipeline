@@ -1,0 +1,7 @@
+sample,fastq_1,fastq_2,condition
+Cancer_1,data/raw_fastq/Cancer_1_R1.fastq.gz,data/raw_fastq/Cancer_1_R2.fastq.gz,Cancer
+Cancer_2,data/raw_fastq/Cancer_2_R1.fastq.gz,data/raw_fastq/Cancer_2_R2.fastq.gz,Cancer
+Cancer_3,data/raw_fastq/Cancer_3_R1.fastq.gz,data/raw_fastq/Cancer_3_R2.fastq.gz,Cancer
+Healthy_1,data/raw_fastq/Healthy_1_R1.fastq.gz,data/raw_fastq/Healthy_1_R2.fastq.gz,Healthy
+Healthy_2,data/raw_fastq/Healthy_2_R1.fastq.gz,data/raw_fastq/Healthy_2_R2.fastq.gz,Healthy
+Healthy_3,data/raw_fastq/Healthy_3_R1.fastq.gz,data/raw_fastq/Healthy_3_R2.fastq.gz,Healthy
